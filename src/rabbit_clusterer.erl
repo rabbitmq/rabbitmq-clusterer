@@ -36,9 +36,6 @@ start_link() ->
 await_cluster() ->
     gen_server:call(?SERVER, await_cluster, infinity).
 
-become(Term) ->
-    gen_server:cast(?SERVER, {become, Term}).
-
 %%----------------------------------------------------------------------------
 
 init([]) ->
@@ -71,8 +68,6 @@ handle_call(await_cluster, _From, State = #state { status = Status }) ->
 handle_call(Msg, From, State) ->
     {stop, {unhandled_call, Msg, From}, State}.
 
-handle_cast({become, Term}, State) ->
-    {noreply, set_status(Term, State)};
 handle_cast(Msg, State) ->
     {stop, {unhandled_cast, Msg}, State}.
 
@@ -167,3 +162,27 @@ choose_config() ->
                     {InternalConfig, InternalConfig}
             end
     end.
+
+%% Action plan.
+%%
+%% It appears we need to be a state machine.
+%%
+%% Easy case: old is undefined, new is the default.
+%%
+%% Next easy case: old is not undefined, new is the default:
+%%
+%%   Mnesia's limitations actually make this easy for us: we cannot
+%%   convince mnesia to disconnect another node and remain
+%%   disconnected - it's impossible.  We shouldn't assume at this
+%%   point that we've only just come up - this could be a "ctl
+%%   reload_cluster_config".
+
+%%   So whenever we see a node-up from someone else, we contact them,
+%%   and if our new config is "better" then we just tell them to
+%%   switch off. There's an interesting question as to what happens if
+%%   their config is the same version as our config.  So we could
+%%   force_load everything to make sure we can then
+%%   wait_for_tables. We'll then have to just watch to see if anyone
+%%   else appears...  ...which turns out to be harder than you'd think
+%%   - the node_monitor notify_up is the very last boot step to be
+%%   run.
