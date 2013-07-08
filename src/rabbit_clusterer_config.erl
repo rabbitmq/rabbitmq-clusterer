@@ -4,17 +4,19 @@
 
 -export([default_config/0,
          proplist_config_to_record/1,
-         record_config_to_proplist/1]).
+         record_config_to_proplist/1,
+         load_last_seen_cluster_state/0]).
 
 default_config() ->
     proplist_config_to_record(
       [{nodes, [{node(), disc}]},
        {version, 0},
        {minor_version, 0},
-       {gospel, {node, node()}}]).
+       {gospel, {node, node()}},
+       {shutdown_timeout, infinity}]).
 
 required_keys() ->
-    [nodes, version, gospel].
+    [nodes, version, gospel, shutdown_timeout].
 
 optional_keys() ->
     [{minor_version, 0}].
@@ -31,20 +33,20 @@ proplist_config_to_record(Proplist) when is_list(Proplist) ->
         -- proplists:get_keys(optional_keys()), %% ASSERTION
     Config = #config {},
     Fields = record_info(fields, config),
-    {_Pos, Config1} =
+    {_Pos, Config1 = #config { nodes = Nodes }} =
         lists:foldl(fun (FieldName, {Pos, ConfigN}) ->
                             Value = proplists:get_value(FieldName, Proplist1),
                             {Pos + 1, setelement(Pos, ConfigN, Value)}
                     end, {2, Config}, Fields),
-    Config1.
+    Config1 #config { nodes = normalise_nodes(Nodes) }.
 
-record_config_to_proplist(Config = #config{}) ->
-    Fields = record_info(fields, config),
-    {_Pos, Proplist} =
-        lists:foldl(fun (FieldName, {Pos, ProplistN}) ->
-                            [{FieldName, element(Pos, Config)} | ProplistN]
-                    end, {2, []}, Fields),
-    Proplist.
+ensure_entries(Entries, Proplist) ->
+    lists:foldl(fun ({Key, _Default} = E, ProplistN) ->
+                        case proplists:is_defined(Key, ProplistN) of
+                            true  -> ProplistN;
+                            false -> [E | ProplistN]
+                        end
+                end, Proplist, Entries).
 
 normalise_nodes(Nodes) when is_list(Nodes) ->
     lists:usort(
@@ -54,10 +56,21 @@ normalise_nodes(Nodes) when is_list(Nodes) ->
                     ({Node, ram} = E)  when is_atom(Node) -> E
                 end, Nodes)).
 
-ensure_entries(Entries, Proplist) ->
-    lists:foldl(fun ({Key, _Default} = E, ProplistN) ->
-                        case proplists:is_defined(Key, ProplistN) of
-                            true  -> ProplistN;
-                            false -> [E | ProplistN]
-                        end
-                end, Proplist, Entries).
+record_config_to_proplist(Config = #config {}) ->
+    Fields = record_info(fields, config),
+    {_Pos, Proplist} =
+        lists:foldl(
+          fun (FieldName, {Pos, ProplistN}) ->
+                  {Pos + 1, [{FieldName, element(Pos, Config)} | ProplistN]}
+          end, {2, []}, Fields),
+    Proplist.
+
+
+%%----------------------------------------------------------------------------
+%% Inspecting known-at-shutdown cluster state
+%%----------------------------------------------------------------------------
+
+load_last_seen_cluster_state() ->
+    try {ok, rabbit_node_monitor:read_cluster_status()}
+    catch {error, Err} -> {error, Err}
+    end.

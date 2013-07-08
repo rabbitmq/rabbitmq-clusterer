@@ -2,7 +2,7 @@
 
 -behaviour(gen_server).
 
--export([await_coordination/0, become/1]).
+-export([await_coordination/0]).
 
 -export([start_link/0, init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
@@ -10,60 +10,72 @@
 -define(SERVER, ?MODULE).
 
 -record(state, { status,
-                 awaiting_active,
+                 awaiting_cluster,
                  node_id,
                  target_config,
-                 current_config
+                 current_config,
+                 transitioner,
+                 transitioner_state
                }).
 
 -include("rabbit_clusterer.hrl").
 
-await_coordination() ->
-    gen_server:call(?SERVER, await_coordination, infinity).
-
-become(Term) ->
-    gen_server:cast(?SERVER, {become, Term}).
-
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+await_coordination() ->
+    gen_server:call(?SERVER, await_coordination, infinity).
 
 %%----------------------------------------------------------------------------
 
 init([]) ->
     ok = rabbit_mnesia:ensure_mnesia_dir(),
-    State = #state { status          = inactive,
-                     awaiting_active = [],
-                     node_id         = undefined,
-                     target_config   = undefined,
-                     current_config  = undefined },
+    State = #state { status             = undefined,
+                     awaiting_cluster   = [],
+                     node_id            = undefined,
+                     target_config      = undefined,
+                     current_config     = undefined,
+                     transitioner       = undefined,
+                     transitioner_state = undefined },
     State1 = case ensure_node_id() of
                  {ok, NodeId} -> State #state { node_id = NodeId };
-                 Err1         -> set_status(Err1, State)
+                 Err1         -> reply_awaiting(Err1, State)
              end,
     {TargetConfig, CurrentConfig} = choose_config(),
     State2 = State1 #state { target_config = TargetConfig,
                              current_config = CurrentConfig },
-    State3 = case load_last_seen_cluster_state() of
-                 {ok, {AllNodes, DiscNodes, RunningNodes}} ->
-                     State2;
-                 Err2 ->
-                     set_status(Err2, State2)
-             end,
-    {ok, State3}.
+    case {TargetConfig, CurrentConfig} of
+        {undefined, undefined} ->
+            %% No config at all, 'join' the default.
+            {ok, begin_transition(
+                   rabbit_clusterer_join,
+                   rabbit_clusterer_config:default_config(), State2)};
+        {Config, Config} ->
+            %% Configuration has not changed. We think.
+            {ok, begin_transition(rabbit_clusterer_rejoin, Config, State2)};
+        {_, _} ->
+            %% New cluster has been applied
+            {ok, begin_transition(rabbit_clusterer_join, TargetConfig, State2)}
+    end.
 
 handle_call(await_coordination, From,
-            State = #state { status = inactive, awaiting_active = AA }) ->
-    {noreply, State #state { awaiting_active = [From | AA] }};
+            State = #state { status = undefined, awaiting_cluster = AC }) ->
+    {noreply, State #state { awaiting_cluster = [From | AC] }};
 handle_call(await_coordination, _From, State = #state { status = Status }) ->
     {reply, Status, State};
 handle_call(Msg, From, State) ->
     {stop, {unhandled_call, Msg, From}, State}.
 
-handle_cast({become, Term}, State) ->
-    {noreply, set_status(Term, State)};
 handle_cast(Msg, State) ->
     {stop, {unhandled_cast, Msg}, State}.
 
+handle_info({shutdown, Ref}, State = #state { status = undefined,
+                                              transitioner = {shutdown, Ref},
+                                              transitioner_state = undefined }) ->
+    {stop, normal,
+     reply_awaiting(shutdown, State #state { transitioner = undefined })};
+handle_info({shutdown, _Ref}, State) ->
+    {noreply, State};
 handle_info(Msg, State) ->
     {stop, {unhandled_info, Msg}, State}.
 
@@ -74,23 +86,11 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 %%----------------------------------------------------------------------------
+%% Node ID
+%%----------------------------------------------------------------------------
 
 node_id_file_path() ->
     filename:join(rabbit_mnesia:dir(), "node_id").
-
-internal_config_path() ->
-    filename:join(rabbit_mnesia:dir(), "cluster.config").
-
-external_config_path() ->
-    application:get_env(rabbit, cluster_config).
-
-set_status_ok(State) ->
-    set_status(ok, State).
-
-set_status(Term, State = #state { awaiting_active = AA,
-                                  status = inactive }) ->
-    [gen_server:reply(From, Term) || From <- AA],
-    State #state { awaiting_active = [], status = Term }.
 
 ensure_node_id() ->
     case rabbit_file:read_term_file(node_id_file_path()) of
@@ -101,19 +101,25 @@ ensure_node_id() ->
 
 create_node_id() ->
     %% We can't use rabbit_guid here because it hasn't been started at
-    %% this stage. In reality, this isn't a massive problem: the
-    %% implication that we need to create a node_id is that the guid
-    %% serial will be 0 anyway.
+    %% this stage. In reality, this isn't a massive problem: the fact
+    %% we need to create a node_id implies that we're a fresh node, so
+    %% the guid serial will be 0 anyway.
     NodeID = erlang:md5(term_to_binary({node(), make_ref()})),
     case rabbit_file:write_term_file(node_id_file_path(), [NodeID]) of
         ok                -> {ok, NodeID};
         {error, _E} = Err -> Err
     end.
 
-load_last_seen_cluster_state() ->
-    try {ok, rabbit_node_monitor:read_cluster_status()}
-    catch {error, Err} -> {error, Err}
-    end.
+
+%%----------------------------------------------------------------------------
+%% Cluster config loading and selection
+%%----------------------------------------------------------------------------
+
+internal_config_path() ->
+    filename:join(rabbit_mnesia:dir(), "cluster.config").
+
+external_config_path() ->
+    application:get_env(rabbit, cluster_config).
 
 choose_config() ->
     ExternalProplist =
@@ -132,7 +138,7 @@ choose_config() ->
                        end,
     case {ExternalProplist, InternalProplist} of
         {undefined, undefined} ->
-            {rabbit_clusterer_config:default_config(), undefined};
+            {undefined, undefined};
         {undefined, Proplist} ->
             Config = rabbit_clusterer_config:proplist_config_to_record(Proplist),
             {Config, Config};
@@ -148,34 +154,58 @@ choose_config() ->
             %% We deliberately require > and not >=. I.e. if a user
             %% provides a config, it must have a strictly greater
             %% version than our current config in order to be valid.
-            if
-                {ExternalV, ExternalMV} > {InternalV, InternalMV} ->
-                    {ExternalConfig, InternalConfig};
-                true ->
-                    {InternalConfig, InternalConfig}
+            case {ExternalV, ExternalMV} > {InternalV, InternalMV} of
+                true  -> {ExternalConfig, InternalConfig};
+                false -> {InternalConfig, InternalConfig}
             end
     end.
 
-%% Action plan.
-%%
-%% It appears we need to be a state machine.
-%%
-%% Easy case: old is undefined, new is the default.
-%%
-%% Next easy case: old is not undefined, new is the default:
-%%
-%%   Mnesia's limitations actually make this easy for us: we cannot
-%%   convince mnesia to disconnect another node and remain
-%%   disconnected - it's impossible.  We shouldn't assume at this
-%%   point that we've only just come up - this could be a "ctl
-%%   reload_cluster_config".
+write_internal_config(Config) ->
+    Proplist = rabbit_clusterer_config:record_config_to_proplist(Config),
+    ok = rabbit_file:write_term_file(internal_config_path(), [Proplist]).
 
-%%   So whenever we see a node-up from someone else, we contact them,
-%%   and if our new config is "better" then we just tell them to
-%%   switch off. There's an interesting question as to what happens if
-%%   their config is the same version as our config.  So we could
-%%   force_load everything to make sure we can then
-%%   wait_for_tables. We'll then have to just watch to see if anyone
-%%   else appears...  ...which turns out to be harder than you'd think
-%%   - the node_monitor notify_up is the very last boot step to be
-%%   run.
+%%----------------------------------------------------------------------------
+%% Signalling to waiting processes
+%%----------------------------------------------------------------------------
+
+reply_awaiting_ok(State) ->
+    reply_awaiting(ok, State).
+
+reply_awaiting(Term, State = #state { awaiting_cluster = AC,
+                                      status = undefined }) ->
+    [gen_server:reply(From, Term) || From <- AC],
+    State #state { awaiting_cluster = [], status = Term }.
+
+
+%%----------------------------------------------------------------------------
+%% Changing cluster config
+%%----------------------------------------------------------------------------
+
+begin_transition(TModule, Config, State) ->
+    process_transitioner_response(TModule:init(Config),
+                                  State #state { status = undefined,
+                                                 transitioner = TModule }).
+
+
+process_transitioner_response({continue, TState}, State) ->
+    State #state { transitioner_state = TState };
+process_transitioner_response({shutdown, After}, State) ->
+    case After of
+        infinity ->
+            State #state { transitioner = undefined,
+                           transitioner_state = undefined };
+        _ ->
+            Ref = make_ref(),
+            erlang:send_after(After*1000, self(), {shutdown, Ref}),
+            State #state { transitioner = {shutdown, Ref},
+                           transitioner_state = undefined }
+    end;
+process_transitioner_response({success, Config}, State) ->
+    ok = write_internal_config(Config),
+    reply_awaiting_ok(
+      State #state { transitioner = undefined,
+                     transitioner_state = undefined });
+process_transitioner_response({config_changed, Config}, State) ->
+    %% If the config has changed then we must now be joining a new
+    %% config
+    begin_transition(rabbit_clusterer_join, Config, State).

@@ -22,8 +22,5 @@ stop(_State) ->
 
 await_clustering() ->
     %% We need to ensure the app is already started:
-    case application:start(?APP) of
-        ok                               -> ok;
-        {error, {already_started, ?APP}} -> ok
-    end,
-    rabbit_clusterer_coordinator:await_coordination().
+    ok = application:ensure_started(?APP),
+    ok = rabbit_clusterer_coordinator:await_coordination().

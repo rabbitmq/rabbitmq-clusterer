@@ -1,1 +1,1 @@
--record(config, {nodes, version, minor_version, gospel}).
+-record(config, {nodes, version, minor_version, gospel, shutdown_timeout}).
