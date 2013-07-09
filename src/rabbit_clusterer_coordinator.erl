@@ -15,7 +15,8 @@
                  target_config,
                  current_config,
                  transitioner,
-                 transitioner_state
+                 transitioner_state,
+                 comms_pid
                }).
 
 -include("rabbit_clusterer.hrl").
@@ -36,26 +37,24 @@ init([]) ->
                      target_config      = undefined,
                      current_config     = undefined,
                      transitioner       = undefined,
-                     transitioner_state = undefined },
+                     transitioner_state = undefined,
+                     comms_pid          = undefined },
     State1 = case ensure_node_id() of
                  {ok, NodeId} -> State #state { node_id = NodeId };
                  Err1         -> reply_awaiting(Err1, State)
              end,
-    {TargetConfig, CurrentConfig} = choose_config(),
-    State2 = State1 #state { target_config = TargetConfig,
-                             current_config = CurrentConfig },
-    case {TargetConfig, CurrentConfig} of
+    case choose_config() of
         {undefined, undefined} ->
             %% No config at all, 'join' the default.
             {ok, begin_transition(
                    rabbit_clusterer_join,
-                   rabbit_clusterer_config:default_config(), State2)};
+                   rabbit_clusterer_utils:default_config(), State1)};
         {Config, Config} ->
             %% Configuration has not changed. We think.
-            {ok, begin_transition(rabbit_clusterer_rejoin, Config, State2)};
-        {_, _} ->
-            %% New cluster has been applied
-            {ok, begin_transition(rabbit_clusterer_join, TargetConfig, State2)}
+            {ok, begin_transition(rabbit_clusterer_rejoin, Config, State1)};
+        {NewConfig, _} ->
+            %% New cluster config has been applied
+            {ok, begin_transition(rabbit_clusterer_join, NewConfig, State1)}
     end.
 
 handle_call(await_coordination, From,
@@ -70,8 +69,8 @@ handle_cast(Msg, State) ->
     {stop, {unhandled_cast, Msg}, State}.
 
 handle_info({shutdown, Ref}, State = #state { status = undefined,
-                                              transitioner = {shutdown, Ref},
-                                              transitioner_state = undefined }) ->
+                                              transitioner = shutdown,
+                                              transitioner_state = Ref }) ->
     {stop, normal,
      reply_awaiting(shutdown, State #state { transitioner = undefined })};
 handle_info({shutdown, _Ref}, State) ->
@@ -141,16 +140,16 @@ choose_config() ->
         {undefined, undefined} ->
             {undefined, undefined};
         {undefined, Proplist} ->
-            Config = rabbit_clusterer_config:proplist_config_to_record(Proplist),
+            Config = rabbit_clusterer_utils:proplist_config_to_record(Proplist),
             {Config, Config};
         {Proplist, undefined} ->
-            {rabbit_clusterer_config:proplist_config_to_record(Proplist), undefined};
+            {rabbit_clusterer_utils:proplist_config_to_record(Proplist), undefined};
         _ ->
             [ExternalConfig = #config { version = ExternalV,
                                         minor_version = ExternalMV },
              InternalConfig = #config { version = InternalV,
                                         minor_version = InternalMV }] =
-                [rabbit_clusterer_config:proplist_config_to_record(Proplist)
+                [rabbit_clusterer_utils:proplist_config_to_record(Proplist)
                  || Proplist <- [InternalProplist, ExternalProplist]],
             %% We deliberately require > and not >=. I.e. if a user
             %% provides a config, it must have a strictly greater
@@ -162,7 +161,7 @@ choose_config() ->
     end.
 
 write_internal_config(Config) ->
-    Proplist = rabbit_clusterer_config:record_config_to_proplist(Config),
+    Proplist = rabbit_clusterer_utils:record_config_to_proplist(Config),
     ok = rabbit_file:write_term_file(internal_config_path(), [Proplist]).
 
 %%----------------------------------------------------------------------------
@@ -182,30 +181,40 @@ reply_awaiting(Term, State = #state { awaiting_cluster = AC,
 %% Changing cluster config
 %%----------------------------------------------------------------------------
 
-begin_transition(TModule, Config, State) ->
-    process_transitioner_response(TModule:init(Config),
+begin_transition(TModule, Config, State = #state { node_id = NodeID }) ->
+    process_transitioner_response(TModule:init(Config, NodeID),
                                   State #state { status = undefined,
-                                                 transitioner = TModule }).
+                                                 transitioner = TModule,
+                                                 target_config = Config }).
 
 
 process_transitioner_response({continue, TState}, State) ->
     State #state { transitioner_state = TState };
-process_transitioner_response({shutdown, After}, State) ->
-    case After of
+process_transitioner_response(
+  {shutdown, Config = #config { shutdown_timeout = Timeout }}, State) ->
+    %% If we've had a config applied to us that tells us to shutdown,
+    %% we must record that config, otherwise we can later be restarted
+    %% and try to start up with an outdated config.
+    ok = write_internal_config(Config),
+    State1 = State #state { current_config = Config,
+                             target_config = undefined },
+    case Timeout of
         infinity ->
-            State #state { transitioner = undefined,
-                           transitioner_state = undefined };
+            State1 #state { transitioner = undefined,
+                            transitioner_state = undefined };
         _ ->
             Ref = make_ref(),
-            erlang:send_after(After*1000, self(), {shutdown, Ref}),
-            State #state { transitioner = {shutdown, Ref},
-                           transitioner_state = undefined }
+            erlang:send_after(Timeout*1000, self(), {shutdown, Ref}),
+            State1 #state { transitioner = shutdown,
+                            transitioner_state = Ref }
     end;
 process_transitioner_response({success, Config}, State) ->
     ok = write_internal_config(Config),
     reply_awaiting_ok(
       State #state { transitioner = undefined,
-                     transitioner_state = undefined });
+                     transitioner_state = undefined,
+                     current_config = Config,
+                     target_config = undefined });
 process_transitioner_response({config_changed, Config}, State) ->
     %% If the config has changed then we must now be joining a new
     %% config

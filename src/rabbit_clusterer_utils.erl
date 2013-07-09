@@ -1,4 +1,4 @@
--module(rabbit_clusterer_config).
+-module(rabbit_clusterer_utils).
 
 -include("rabbit_clusterer.hrl").
 
