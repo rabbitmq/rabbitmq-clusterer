@@ -17,6 +17,6 @@ start_comms() ->
 %%----------------------------------------------------------------------------
 
 init([]) ->
-    {ok, {{simple_one_for_one, 0, 1},
+    {ok, {{simple_one_for_one, 10, 10},
           [{comms, {rabbit_clusterer_comms, start_link, []},
             temporary, 16#ffffffff, worker, [rabbit_clusterer_comms]}]}}.
