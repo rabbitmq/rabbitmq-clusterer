@@ -12,7 +12,7 @@ init(Config = #config { nodes = Nodes }, NodeID, Comms) ->
     case proplists:get_value(Node, Nodes) of
         undefined ->
             %% Oh. We're not in there...
-            {shutdown, Config};
+            shutdown;
         disc when length(Nodes) =:= 1 ->
             %% Simple: we're continuing to cluster with ourself and
             %% we're disk. Don't do a reset. We're done.

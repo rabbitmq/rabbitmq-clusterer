@@ -5,7 +5,8 @@
 -export([default_config/0,
          proplist_config_to_record/1,
          record_config_to_proplist/1,
-         load_last_seen_cluster_state/0]).
+         load_last_seen_cluster_state/0,
+         compare_configs/2]).
 
 default_config() ->
     proplist_config_to_record(
@@ -65,6 +66,19 @@ record_config_to_proplist(Config = #config {}) ->
           end, {2, []}, Fields),
     Proplist.
 
+compare_configs(
+  #config { version = V, minor_version = MV, gospel = GA, shutdown_timeout = STA, nodes = NA },
+  #config { version = V, minor_version = MV, gospel = GB, shutdown_timeout = STB, nodes = NB }) ->
+    case {[GA, STA, lists:usort(NA)], [GB, STB, lists:usort(NB)]} of
+        {X, X} -> eq;
+        _      -> invalid
+    end;
+compare_configs(#config { version = VA, minor_version = MVA },
+                #config { version = VB, minor_version = MVB }) ->
+    case {VA, MVA} > {VB, MVB} of
+        true  -> gt;
+        false -> lt
+    end.
 
 %%----------------------------------------------------------------------------
 %% Inspecting known-at-shutdown cluster state
