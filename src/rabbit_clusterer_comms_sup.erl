@@ -12,7 +12,8 @@ start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
 start_comms() ->
-    supervisor:start_child(?SERVER, []).
+    {ok, _Pid, Token} = supervisor:start_child(?SERVER, []),
+    {ok, Token}.
 
 %%----------------------------------------------------------------------------
 

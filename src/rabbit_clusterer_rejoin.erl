@@ -1,12 +1,12 @@
 -module(rabbit_clusterer_rejoin).
 
--export([init/2, event/2]).
+-export([init/3, event/2]).
 
--record(state, { config, node_id }).
+-record(state, { config, node_id, comms }).
 
 -include("rabbit_clusterer.hrl").
 
-init(Config = #config { nodes = Nodes }, NodeID) ->
+init(Config = #config { nodes = Nodes }, NodeID, Comms) ->
     Node = node(),
     %% Check we're actually involved in this
     case proplists:get_value(Node, Nodes) of
@@ -33,7 +33,8 @@ init(Config = #config { nodes = Nodes }, NodeID) ->
                     SurvivingNodes = NodesRunningAtShutdown -- [Node],
                     %%{ok, Ref} = Caster(SurvivingNodes, {rejoin, Config}),
                     {continue, #state { config  = Config,
-                                        node_id = NodeID }}
+                                        node_id = NodeID,
+                                        comms   = Comms }}
             end
     end.
 

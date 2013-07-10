@@ -1,12 +1,12 @@
 -module(rabbit_clusterer_join).
 
--export([init/2, event/2]).
+-export([init/3, event/2]).
 
--record(state, { config, node_id }).
+-record(state, { config, node_id, comms }).
 
 -include("rabbit_clusterer.hrl").
 
-init(Config = #config { nodes = Nodes }, NodeID) ->
+init(Config = #config { nodes = Nodes }, NodeID, Comms) ->
     %% 1. Check we're actually involved in this
     case proplists:get_value(node(), Nodes) of
         undefined ->
@@ -24,7 +24,8 @@ init(Config = #config { nodes = Nodes }, NodeID) ->
                                 N =/= node() ],
             %% Right, time to consult with our neighbours.
             {continue, #state { config  = Config,
-                                node_id = NodeID }}
+                                node_id = NodeID,
+                                comms   = Comms }}
     end.
 
 event(Event, Config) ->

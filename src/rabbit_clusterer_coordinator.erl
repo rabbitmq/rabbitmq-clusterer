@@ -12,11 +12,10 @@
 -record(state, { status,
                  awaiting_cluster,
                  node_id,
-                 target_config,
-                 current_config,
+                 config,
                  transitioner,
                  transitioner_state,
-                 comms_pid
+                 comms
                }).
 
 -include("rabbit_clusterer.hrl").
@@ -34,11 +33,10 @@ init([]) ->
     State = #state { status             = undefined,
                      awaiting_cluster   = [],
                      node_id            = undefined,
-                     target_config      = undefined,
-                     current_config     = undefined,
+                     config             = undefined,
                      transitioner       = undefined,
                      transitioner_state = undefined,
-                     comms_pid          = undefined },
+                     comms              = undefined },
     State1 = case ensure_node_id() of
                  {ok, NodeId} -> State #state { node_id = NodeId };
                  Err1         -> reply_awaiting(Err1, State)
@@ -182,10 +180,11 @@ reply_awaiting(Term, State = #state { awaiting_cluster = AC,
 %%----------------------------------------------------------------------------
 
 begin_transition(TModule, Config, State = #state { node_id = NodeID }) ->
-    process_transitioner_response(TModule:init(Config, NodeID),
-                                  State #state { status = undefined,
-                                                 transitioner = TModule,
-                                                 target_config = Config }).
+    {ok, Comms, State1} = fresh_comms(State),
+    process_transitioner_response(TModule:init(Config, NodeID, Comms),
+                                  State1 #state { status       = undefined,
+                                                  transitioner = TModule,
+                                                  config       = Config }).
 
 
 process_transitioner_response({continue, TState}, State) ->
@@ -196,8 +195,7 @@ process_transitioner_response(
     %% we must record that config, otherwise we can later be restarted
     %% and try to start up with an outdated config.
     ok = write_internal_config(Config),
-    State1 = State #state { current_config = Config,
-                             target_config = undefined },
+    {ok, State1} = stop_comms(State),
     case Timeout of
         infinity ->
             State1 #state { transitioner = undefined,
@@ -205,17 +203,26 @@ process_transitioner_response(
         _ ->
             Ref = make_ref(),
             erlang:send_after(Timeout*1000, self(), {shutdown, Ref}),
-            State1 #state { transitioner = shutdown,
+            State1 #state { transitioner       = shutdown,
                             transitioner_state = Ref }
     end;
 process_transitioner_response({success, Config}, State) ->
     ok = write_internal_config(Config),
-    reply_awaiting_ok(
-      State #state { transitioner = undefined,
-                     transitioner_state = undefined,
-                     current_config = Config,
-                     target_config = undefined });
+    {ok, State1} = stop_comms(State #state { transitioner = undefined,
+                                             transitioner_state = undefined }),
+    reply_awaiting_ok(State1);
 process_transitioner_response({config_changed, Config}, State) ->
     %% If the config has changed then we must now be joining a new
     %% config
     begin_transition(rabbit_clusterer_join, Config, State).
+
+fresh_comms(State) ->
+    {ok, State1} = stop_comms(State),
+    {ok, Token} = rabbit_clusterer_comms_sup:start_comms(),
+    {ok, Token, State1 #state { comms = Token }}.
+
+stop_comms(State = #state { comms = undefined }) ->
+    {ok, State};
+stop_comms(State = #state { comms = Token }) ->
+    ok = rabbit_clusterer_comms:stop(Token),
+    {ok, State #state { comms = undefined }}.
