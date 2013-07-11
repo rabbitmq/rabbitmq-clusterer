@@ -37,7 +37,7 @@ init([]) ->
                      transitioner       = undefined,
                      transitioner_state = undefined,
                      comms              = undefined },
-    State1 = case ensure_node_id() of
+    State1 = case rabbit_clusterer_utils:ensure_node_id() of
                  {ok, NodeId} -> State #state { node_id = NodeId };
                  Err1         -> reply_awaiting(Err1, State)
              end,
@@ -108,32 +108,6 @@ terminate(_Reason, _State) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
-
-
-%%----------------------------------------------------------------------------
-%% Node ID
-%%----------------------------------------------------------------------------
-
-node_id_file_path() ->
-    filename:join(rabbit_mnesia:dir(), "node_id").
-
-ensure_node_id() ->
-    case rabbit_file:read_term_file(node_id_file_path()) of
-        {ok, [NodeId]}    -> {ok, NodeId};
-        {error, enoent}   -> create_node_id();
-        {error, _E} = Err -> Err
-    end.
-
-create_node_id() ->
-    %% We can't use rabbit_guid here because it hasn't been started at
-    %% this stage. In reality, this isn't a massive problem: the fact
-    %% we need to create a node_id implies that we're a fresh node, so
-    %% the guid serial will be 0 anyway.
-    NodeID = erlang:md5(term_to_binary({node(), make_ref()})),
-    case rabbit_file:write_term_file(node_id_file_path(), [NodeID]) of
-        ok                -> {ok, NodeID};
-        {error, _E} = Err -> Err
-    end.
 
 
 %%----------------------------------------------------------------------------

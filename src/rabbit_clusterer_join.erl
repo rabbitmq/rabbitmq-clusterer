@@ -14,17 +14,15 @@ init(Config = #config { nodes = Nodes }, NodeID, Comms) ->
             shutdown;
         disc when length(Nodes) =:= 1 ->
             %% Simple: we're just clustering with ourself and we're
-            %% disk. Just do a reset and we're done.
-            ok = rabbit_mnesia:force_reset(),
+            %% disk. Just do a wipe and we're done.
+            ok = rabbit_clusterer_utils:wipe_mnesia(NodeID),
             {success, Config};
         ram when length(Nodes) =:= 1 ->
             {error, ram_only_cluster_config};
         _ ->
-            ok = request_status(Nodes, Comms),
-            {continue, #state { config  = Config,
-                                node_id = NodeID,
-                                comms   = Comms,
-                                state   = awaiting_status }}
+            request_status(#state { config  = Config,
+                                    node_id = NodeID,
+                                    comms   = Comms })
     end.
 
 %% Strategy:
@@ -40,8 +38,7 @@ init(Config = #config { nodes = Nodes }, NodeID, Comms) ->
 event({comms, {[], _BadNodes}}, State = #state { state = awaiting_status }) ->
     delayed_request_status(State);
 event({comms, {Replies, BadNodes}}, State = #state { state  = awaiting_status,
-                                                     config = Config,
-                                                     comms = Comms }) ->
+                                                     config = Config }) ->
     {Youngest, OlderThanUs, TransDict} =
         lists:foldr(
           fun ({Node, {ConfigN, TModuleN}}, {YoungestN, OlderThanUsN, TransDictN}) ->
@@ -50,7 +47,7 @@ event({comms, {Replies, BadNodes}}, State = #state { state  = awaiting_status,
                        invalid ->
                            %% TODO tidy this up - probably shouldn't be a throw.
                            throw("Configs with same version numbers but semantically different");
-                       _  -> Youngest
+                       _  -> YoungestN
                    end,
                    case rabbit_clusterer_utils:compare_configs(ConfigN, Config) of
                        lt -> [Node | OlderThanUsN];
@@ -80,8 +77,7 @@ event({comms, {Replies, BadNodes}}, State = #state { state  = awaiting_status,
                     %% them should be reporting shutdown: they should
                     %% all either be transitioning to 'this' config or
                     %% already in 'this' config.
-                    ok = update_remote_nodes(OlderThanUsN, Config, Comms),
-                    {continue, State #state { state = awaiting_update_success }};
+                    update_remote_nodes(OlderThanUs, State);
                 {[_|_], [], [{?MODULE, _}]} ->
                     %% Everyone here so far is *new* and has the right
                     %% config, but not everyone is here. We need to
@@ -109,22 +105,29 @@ event({comms, {Replies, BadNodes}}, State = #state { state  = awaiting_status,
         _ ->
             {config_changed, Youngest}
     end;
-event({request_status, Ref}, State = #state { state  = {request_status, Ref},
-                                              config = #config { nodes = Nodes },
-                                              comms  = Comms }) ->
-    ok = request_status(Nodes, Comms),
-    {continue, State #state { state = awaiting_status }};
+event({delayed_request_status, Ref},
+      State = #state { state = {delayed_request_status, Ref} }) ->
+    request_status(State);
 event({request_status, _Ref}, State) ->
     %% ignore it
     {continue, State}.
 
 
-request_status(Nodes, Comms) ->
+request_status(State = #state { comms  = Comms,
+                                config = #config { nodes = Nodes } }) ->
     NodesNotUs = [ N || {N, _Mode} <- Nodes, N =/= node() ],
-    ok = rabbit_clusterer_comms:multi_call(NodesNotUs, request_status, Comms).
+    ok = rabbit_clusterer_comms:multi_call(NodesNotUs, request_status, Comms),
+    {continue, State #state { state = awaiting_status }}.
 
 delayed_request_status(State) ->
     %% TODO: work out some sensible timeout value
     Ref = make_ref(),
-    {sleep, 1000, {request_status, Ref},
-     State #state { state = {request_status, Ref} }}.
+    {sleep, 1000, {delayed_request_status, Ref},
+     State #state { state = {delayed_request_status, Ref} }}.
+
+update_remote_nodes(Nodes, State = #state { config = Config, comms = Comms }) ->
+    %% Assumption here is Nodes does not contain node(). We
+    %% deliberately do this cast out of Comms to preserve ordering of
+    %% messages.
+    ok = rabbit_clusterer_comms:multi_cast(Nodes, {new_config, Config}, Comms),
+    request_status(State).

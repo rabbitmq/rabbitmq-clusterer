@@ -6,7 +6,9 @@
          proplist_config_to_record/1,
          record_config_to_proplist/1,
          load_last_seen_cluster_state/0,
-         compare_configs/2]).
+         compare_configs/2,
+         ensure_node_id/0,
+         wipe_mnesia/1]).
 
 default_config() ->
     proplist_config_to_record(
@@ -88,3 +90,38 @@ load_last_seen_cluster_state() ->
     try {ok, rabbit_node_monitor:read_cluster_status()}
     catch {error, Err} -> {error, Err}
     end.
+
+
+
+%%----------------------------------------------------------------------------
+%% Node ID and mnesia
+%%----------------------------------------------------------------------------
+
+node_id_file_path() ->
+    filename:join(rabbit_mnesia:dir(), "node_id").
+
+ensure_node_id() ->
+    case rabbit_file:read_term_file(node_id_file_path()) of
+        {ok, [NodeId]}    -> {ok, NodeId};
+        {error, enoent}   -> create_node_id();
+        {error, _E} = Err -> Err
+    end.
+
+create_node_id() ->
+    %% We can't use rabbit_guid here because it hasn't been started at
+    %% this stage. In reality, this isn't a massive problem: the fact
+    %% we need to create a node_id implies that we're a fresh node, so
+    %% the guid serial will be 0 anyway.
+    NodeId = erlang:md5(term_to_binary({node(), make_ref()})),
+    ok = write_node_id(NodeId),
+    {ok, NodeId}.
+
+write_node_id(NodeID) ->
+    case rabbit_file:write_term_file(node_id_file_path(), [NodeID]) of
+        ok                -> ok;
+        {error, _E} = Err -> Err
+    end.
+
+wipe_mnesia(NodeID) ->
+    ok = rabbit_mnesia:force_reset(),
+    ok = write_node_id(NodeID).
