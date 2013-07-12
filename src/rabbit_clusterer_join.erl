@@ -6,16 +6,22 @@
 
 -include("rabbit_clusterer.hrl").
 
-init(Config = #config { nodes = Nodes }, NodeID, Comms) ->
+init(Config = #config { nodes = Nodes,
+                        gospel = Gospel }, NodeID, Comms) ->
     %% 1. Check we're actually involved in this
     case proplists:get_value(node(), Nodes) of
         undefined ->
             %% Oh. We're not in there...
             shutdown;
         disc when length(Nodes) =:= 1 ->
-            %% Simple: we're just clustering with ourself and we're
-            %% disk. Just do a wipe and we're done.
-            ok = rabbit_clusterer_utils:wipe_mnesia(NodeID),
+            ok = case Gospel of
+                     reset ->
+                         rabbit_clusterer_utils:wipe_mnesia(NodeID);
+                     {node, _Node} ->
+                         %% _utils:proplist_config_to_record ensures
+                         %% if we're here, _Node must be =:= node().
+                         rabbit_clusterer_utils:eliminate_mnesia_dependencies()
+                 end,
             {success, Config};
         ram when length(Nodes) =:= 1 ->
             {error, ram_only_cluster_config};
@@ -25,16 +31,6 @@ init(Config = #config { nodes = Nodes }, NodeID, Comms) ->
                                     comms   = Comms })
     end.
 
-%% Strategy:
-%% 1. If there are only BadNodes then we need to wait for a bit
-%%   and then multi_call again.
-%% 2. If our own config is not the youngest then we need to grab
-%%   the youngest and start again.
-%% 3. If your own config is younger than anyone else then we need
-%%   to apply our own config to them (and continue).
-%% 4. We then wait for either someone to be active, or for
-%%   everyone to be inactive but no BadNodes. In either case, we
-%%   can then actually start.
 event({comms, {[], _BadNodes}}, State = #state { state = awaiting_status }) ->
     delayed_request_status(State);
 event({comms, {Replies, BadNodes}}, State = #state { state  = awaiting_status,
@@ -43,7 +39,7 @@ event({comms, {Replies, BadNodes}}, State = #state { state  = awaiting_status,
         lists:foldr(
           fun ({Node, {ConfigN, TModuleN}}, {YoungestN, OlderThanUsN, TransDictN}) ->
                   {case rabbit_clusterer_utils:compare_configs(ConfigN, YoungestN) of
-                       gt -> ConfigN;
+                       gt -> rabbit_clusterer_utils:merge_node_id_maps(ConfigN, YoungestN);
                        invalid ->
                            %% TODO tidy this up - probably shouldn't be a throw.
                            throw("Configs with same version numbers but semantically different");
@@ -58,49 +54,73 @@ event({comms, {Replies, BadNodes}}, State = #state { state  = awaiting_status,
                    end,
                    dict:append(TModuleN, Node, TransDictN)}
                  end, {Config, [], dict:new()}, Replies),
-    case Youngest of
-        Config ->
-            %% We have the most up to date config. Huzzuh.
-            case {BadNodes, OlderThanUs, dict:to_list(TransDict)} of
-                {[], [], [{?MODULE, _}]} ->
-                    %% Everyone is here, everyone has our config,
-                    %% everyone is new.  We can make an executive
-                    %% decision as to who should lead and just go for
-                    %% it.
-                    ko; %% TODO: the above.
-                {_, [_|_], _} ->
-                    %% Some nodes have older versions than us. We need
-                    %% to update them. We have this case here so that
-                    %% we don't need to worry about nodes being in
-                    %% 'shutdown' later on: when everyone involved in
-                    %% 'this' config has 'this' config then none of
-                    %% them should be reporting shutdown: they should
-                    %% all either be transitioning to 'this' config or
-                    %% already in 'this' config.
-                    update_remote_nodes(OlderThanUs, State);
-                {[_|_], [], [{?MODULE, _}]} ->
-                    %% Everyone here so far is *new* and has the right
-                    %% config, but not everyone is here. We need to
-                    %% wait.
-                    %% TODO: DON'T WAIT IF WE'RE GOSPEL
-                    delayed_request_status(State);
-                {_, [], _} ->
-                    %% There may be some bad nodes around, but some
-                    %% nodes are not new. We need to investigate
-                    %% further.
-                    case dict:find(ok, TransDict) of
-                        {ok, Nodes} ->
-                            %% Some nodes are not transitioning at
-                            %% all: they are up and running. We should
-                            %% be able to sync to them and come up.
-                            ko; %% TODO: the above
-                        error ->
-                            %% Ok, so the other nodes must be
-                            %% rejoining. We should just wait for them
-                            %% to be ready.
-                            %% TODO: DON'T WAIT IF WE'RE GOSPEL
-                            delayed_request_status(State)
-                    end
+    case rabbit_clusterer_utils:compare_configs(Youngest, Config) of
+        eq ->
+            %% We have the most up to date config. Huzzuh. But we must
+            %% actually use Youngest from here on as it has the
+            %% updated node_id_maps.
+            State1 = State #state { config = Youngest },
+            case OlderThanUs of
+                [] ->
+                    case lists:usort(dict:fetch_keys(TransDict)) of
+                        [?MODULE] ->
+                            %% Everyone who is here is joining. So
+                            %% everyone is new to this cluster.
+                            case BadNodes of
+                                [] ->
+                                    %% And everyone who should be here
+                                    %% is. So we need to look at
+                                    %% gospel, everyone who's not
+                                    %% gospel should reset. If no one
+                                    %% is gospel then we just elect a
+                                    %% leader and go from there.
+                                    todo; %% TODO
+                                [_|_] ->
+                                    %% We have some bad nodes around,
+                                    %% so we can't actually trust that
+                                    %% everyone really will be new to
+                                    %% this cluster. That said, if
+                                    %% gospel is a node that is here
+                                    %% (or indeed even 'reset') then
+                                    %% we can move
+                                    %% forwards. Otherwise, we need to
+                                    %% wait.
+                                    %% TODO
+                                    delayed_request_status(State1)
+                            end;
+                        [ok|_] ->
+                            %% Some nodes have actually formed into a
+                            %% cluster. We should be able to sync to
+                            %% them. We will definitely need to do a
+                            %% wipe here.
+                            todo;
+                        [_|_] ->
+                            %% One might think that we should just
+                            %% wait and go round again until we see an
+                            %% 'ok' and be in the above
+                            %% branch. However because host names can
+                            %% be reused, there is the possibility
+                            %% that previously 'we' were in a cluster,
+                            %% 'we' were shut down last, then wiped,
+                            %% and are being brought up with the old
+                            %% cluster config (but as we were wiped,
+                            %% we see it as being new, hence why we're
+                            %% in this transitioner). So everyone else
+                            %% is rejoining, and is blocked waiting
+                            %% for us. The plan is that having sent
+                            %% over our (new) node_id in the
+                            %% request_status message, the other nodes
+                            %% will realise we've been wiped and will
+                            %% take appropriate action. Thus here we
+                            %% really do just wait to go around again.
+                            delayed_request_status(State1)
+                    end;
+                [_|_] ->
+                    %% Update nodes which are older than us. In
+                    %% reality they're likely to receive lots of the
+                    %% same update from everyone else, but meh,
+                    %% they'll just have to cope.
+                    update_remote_nodes(OlderThanUs, State1)
             end;
         _ ->
             {config_changed, Youngest}
@@ -110,13 +130,18 @@ event({delayed_request_status, Ref},
     request_status(State);
 event({request_status, _Ref}, State) ->
     %% ignore it
+    {continue, State};
+event({node_reset, _Node}, State) ->
+    %% I don't think we need to do anything here.
     {continue, State}.
 
 
-request_status(State = #state { comms  = Comms,
-                                config = #config { nodes = Nodes } }) ->
+request_status(State = #state { comms   = Comms,
+                                node_id = NodeID,
+                                config  = #config { nodes = Nodes } }) ->
     NodesNotUs = [ N || {N, _Mode} <- Nodes, N =/= node() ],
-    ok = rabbit_clusterer_comms:multi_call(NodesNotUs, request_status, Comms),
+    ok = rabbit_clusterer_comms:multi_call(
+           NodesNotUs, {request_status, node(), NodeID}, Comms),
     {continue, State #state { state = awaiting_status }}.
 
 delayed_request_status(State) ->

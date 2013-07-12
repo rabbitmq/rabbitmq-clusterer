@@ -37,22 +37,25 @@ init([]) ->
                      transitioner       = undefined,
                      transitioner_state = undefined,
                      comms              = undefined },
-    State1 = case rabbit_clusterer_utils:ensure_node_id() of
-                 {ok, NodeId} -> State #state { node_id = NodeId };
-                 Err1         -> reply_awaiting(Err1, State)
-             end,
+    State1 = #state { node_id = NodeId } =
+        case rabbit_clusterer_utils:ensure_node_id() of
+            {ok, NodeId1} -> State #state { node_id = NodeId1 };
+            Err1         -> reply_awaiting(Err1, State)
+        end,
     case choose_config() of
         {undefined, undefined} ->
             %% No config at all, 'join' the default.
             {ok, begin_transition(
                    rabbit_clusterer_join,
-                   rabbit_clusterer_utils:default_config(), State1)};
+                   rabbit_clusterer_utils:default_config(NodeId), State1)};
         {Config, Config} ->
             %% Configuration has not changed. We think.
             {ok, begin_transition(rabbit_clusterer_rejoin, Config, State1)};
-        {NewConfig, _} ->
+        {NewConfig, OldConfig} ->
             %% New cluster config has been applied
-            {ok, begin_transition(rabbit_clusterer_join, NewConfig, State1)}
+            NewConfig1 =
+                rabbit_clusterer_utils:merge_node_id_maps(NewConfig, OldConfig),
+            {ok, begin_transition(rabbit_clusterer_join, NewConfig1, State1)}
     end.
 
 handle_call(await_coordination, From,
@@ -60,14 +63,29 @@ handle_call(await_coordination, From,
     {noreply, State #state { awaiting_cluster = [From | AC] }};
 handle_call(await_coordination, _From, State = #state { status = Status }) ->
     {reply, Status, State};
-handle_call(request_status, _From, State = #state { config       = Config,
-                                                    transitioner = TModule,
-                                                    status       = Status }) ->
-    ResultStatus = case TModule of
-                       undefined -> Status;
-                       _         -> TModule
+handle_call({request_status, Node, NodeID}, From,
+            State = #state { config             = Config,
+                             transitioner       = TModule,
+                             transitioner_state = TState,
+                             status             = Status }) ->
+    ResultStatus = case Status of
+                       ok -> ok;
+                       _  -> TModule
                    end,
-    {reply, {Config, ResultStatus}, reset_shutdown(State)};
+    {NodeIDChanged, Config1} =
+        rabbit_clusterer_utils:add_node_id(Node, NodeID, Config),
+    gen_server:reply(From, {Config1, ResultStatus}),
+    State1 = State #state { config = Config1 },
+    State2 = case TModule of
+                 undefined ->
+                     reset_shutdown(State1);
+                 _ when NodeIDChanged ->
+                     process_transitioner_response(
+                       TModule:event({node_reset, Node}, TState), State1);
+                 _ ->
+                     State1
+             end,
+    {noreply, State2};
 handle_call(Msg, From, State) ->
     {stop, {unhandled_call, Msg, From}, State}.
 
@@ -81,6 +99,9 @@ handle_cast({comms, Comms, Result},
 handle_cast({comms, _Comms, _Result}, State) ->
     %% Must be from an old comms. Ignore silently by design.
     {noreply, State};
+handle_cast({new_config, ConfigNew}, State = #state { config = ConfigOld }) ->
+    ConfigNew1 = rabbit_clusterer_utils:merge_node_id_maps(ConfigNew, ConfigOld),
+    {noreply, begin_transition(rabbit_clusterer_join, ConfigNew1, State)};
 handle_cast(Msg, State) ->
     {stop, {unhandled_cast, Msg}, State}.
 
@@ -202,12 +223,15 @@ process_transitioner_response({success, Config}, State) ->
     {ok, State1} = stop_comms(State #state { transitioner = undefined,
                                              transitioner_state = undefined }),
     reply_awaiting_ok(State1);
-process_transitioner_response({config_changed, Config}, State) ->
+process_transitioner_response({config_changed, ConfigNew},
+                              State = #state { config = ConfigOld }) ->
+    %% Just to be safe, merge through the node_id_maps
+    ConfigNew1 = rabbit_clusterer_utils:merge_node_id_maps(ConfigNew, ConfigOld),
     %% If the config has changed then we must now be joining a new
     %% config
-    begin_transition(rabbit_clusterer_join, Config, State);
+    begin_transition(rabbit_clusterer_join, ConfigNew1, State);
 process_transitioner_response({sleep, Delay, Event, TState}, State) ->
-    erlang:send_after(Delay, {transitioner_delay, Event}),
+    erlang:send_after(Delay, self(), {transitioner_delay, Event}),
     State #state { transitioner_state = TState }.
 
 

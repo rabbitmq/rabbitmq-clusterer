@@ -2,7 +2,7 @@
 
 -behaviour(gen_server).
 
--export([stop/1, multi_call/3]).
+-export([stop/1, multi_call/3, multi_cast/3]).
 
 -export([start_link/0, init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
@@ -27,6 +27,13 @@ multi_call(Nodes, Msg, {Pid, _Ref}) ->
     gen_server:cast(Pid, {multi_call, self(), Nodes, Msg}),
     ok.
 
+multi_cast(Nodes, Msg, {Pid, _Ref}) ->
+    %% Reason for doing this is to ensure that both abcasts and
+    %% multi_calls originate from the same process and so will be
+    %% received in the same order as they're sent.
+    gen_server:cast(Pid, {multi_cast, Nodes, Msg}),
+    ok.
+
 init([Ref]) ->
     {ok, #state { token = {self(), Ref} }}.
 
@@ -35,8 +42,13 @@ handle_call(Msg, From, State) ->
 
 handle_cast({multi_call, ReplyTo, Nodes, Msg},
             State = #state { token = Token }) ->
-    Result = gen_server:multi_call(Nodes, ?TARGET, Msg),
+    %% 'infinity' does not cause it to wait for badnodes to become
+    %% good.
+    Result = gen_server:multi_call(Nodes, ?TARGET, Msg, infinity),
     ReplyTo ! {comms, Token, Result},
+    {noreply, State};
+handle_cast({multi_cast, Nodes, Msg}, State) ->
+    abcast = gen_server:abcast(Nodes, ?TARGET, Msg),
     {noreply, State};
 handle_cast(stop, State) ->
     {stop, normal, State};
