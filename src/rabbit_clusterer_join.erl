@@ -34,7 +34,8 @@ init(Config = #config { nodes = Nodes,
 event({comms, {[], _BadNodes}}, State = #state { state = awaiting_status }) ->
     delayed_request_status(State);
 event({comms, {Replies, BadNodes}}, State = #state { state  = awaiting_status,
-                                                     config = Config }) ->
+                                                     config = Config,
+                                                     node_id = NodeID }) ->
     {Youngest, OlderThanUs, TransDict} =
         lists:foldr(
           fun ({Node, {ConfigN, TModuleN}}, {YoungestN, OlderThanUsN, TransDictN}) ->
@@ -60,6 +61,7 @@ event({comms, {Replies, BadNodes}}, State = #state { state  = awaiting_status,
             %% actually use Youngest from here on as it has the
             %% updated node_id_maps.
             State1 = State #state { config = Youngest },
+            #config { nodes = Nodes, gospel = Gospel } = Youngest,
             case OlderThanUs of
                 [] ->
                     case lists:usort(dict:fetch_keys(TransDict)) of
@@ -74,7 +76,25 @@ event({comms, {Replies, BadNodes}}, State = #state { state  = awaiting_status,
                                     %% gospel should reset. If no one
                                     %% is gospel then we just elect a
                                     %% leader and go from there.
-                                    todo; %% TODO
+                                    {Wipe, IAmLeader} =
+                                        case Gospel of
+                                            {node, Node} when Node =:= node() ->
+                                                {false, true};
+                                            {node, _Node} ->
+                                                {true, false};
+                                            reset ->
+                                                [DiscLeader|_] = lists:usort([N||{N,disc} <- Nodes]),
+                                                {true, DiscLeader =:= node()}
+                                           end,
+                                    ok = case Wipe of
+                                             true  -> rabbit_clusterer_utils:wipe_mnesia(NodeID);
+                                             false -> rabbit_clusterer_utils:eliminate_mnesia_dependencies()
+                                         end,
+                                    if
+                                        IAmLeader -> io:format("LEADER!!!~n"), ok;
+                                        true -> ok = rabbit_clusterer_utils:configure_cluster(Nodes)
+                                    end,
+                                    {success, Youngest};
                                 [_|_] ->
                                     %% We have some bad nodes around,
                                     %% so we can't actually trust that
@@ -93,7 +113,19 @@ event({comms, {Replies, BadNodes}}, State = #state { state  = awaiting_status,
                             %% cluster. We should be able to sync to
                             %% them. We will definitely need to do a
                             %% wipe here.
-                            todo;
+
+                            %% problem is that right here we could
+                            %% still be meant to be the leader of a
+                            %% new cluster - it's a race with the
+                            %% other nodes that have seen us and
+                            %% decided that we're the leader so
+                            %% they're just going to start up. So
+                            %% they've not actually "formed" a cluster
+                            %% and we can't sync to them.
+
+                            ok = rabbit_clusterer_utils:wipe_mnesia(NodeID),
+                            ok = rabbit_clusterer_utils:configure_cluster(Nodes),
+                            {success, Youngest};
                         [_|_] ->
                             %% One might think that we should just
                             %% wait and go round again until we see an

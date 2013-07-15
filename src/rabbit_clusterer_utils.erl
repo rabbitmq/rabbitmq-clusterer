@@ -10,7 +10,9 @@
          ensure_node_id/0,
          wipe_mnesia/1,
          merge_node_id_maps/2,
-         add_node_id/3]).
+         add_node_id/3,
+         eliminate_mnesia_dependencies/0,
+         configure_cluster/1]).
 
 default_config(NodeID) ->
     proplist_config_to_record(
@@ -93,7 +95,10 @@ merge_node_id_maps(ConfigDest = #config { map_node_id = NodeToIDDest },
     NodeToIDDest1 = orddict:merge(
                       fun (_Node, IDDest, _IDSrc) -> IDDest end,
                       NodeToIDDest, NodeToIDSrc),
-    tidy_node_id_maps(ConfigDest #config { map_node_id = NodeToIDDest1 }).
+    tidy_node_id_maps(ConfigDest #config { map_node_id = NodeToIDDest1 });
+merge_node_id_maps(Config, undefined) ->
+    Config.
+%% We deliberately don't have either of the other cases.
 
 add_node_id(Node, NodeID, Config = #config { map_node_id = NodeToID,
                                              map_id_node = IDToNode }) ->
@@ -148,7 +153,7 @@ load_last_seen_cluster_state() ->
 %%----------------------------------------------------------------------------
 
 node_id_file_path() ->
-    filename:join(rabbit_mnesia:dir(), "node_id").
+    rabbit_mnesia:dir() ++ "-cluster.node_id".
 
 ensure_node_id() ->
     case rabbit_file:read_term_file(node_id_file_path()) of
@@ -173,5 +178,27 @@ write_node_id(NodeID) ->
     end.
 
 wipe_mnesia(NodeID) ->
+    application:stop(mnesia),
     ok = rabbit_mnesia:force_reset(),
-    ok = write_node_id(NodeID).
+    ok = write_node_id(NodeID),
+    application:start(mnesia),
+    ok.
+
+eliminate_mnesia_dependencies() ->
+    %% rabbit_table:force_load() does not error if
+    %% mnesia:force_load_table errors(!) Thus we can safely run this
+    %% even in clean state - i.e. one where neither the schema nor any
+    %% tables actually exist.
+    ok = rabbit_table:force_load(),
+    ok = rabbit_node_monitor:reset_cluster_status(),
+    ok.
+
+configure_cluster(Nodes) ->
+    case application:load(rabbit) of
+        ok                                -> ok;
+        {error, {already_loaded, rabbit}} -> ok
+    end,
+    NodeNames = [N || {N, _} <- Nodes],
+    Mode = proplists:get_value(node(), Nodes),
+    ok = application:set_env(rabbit, cluster_nodes, {NodeNames, Mode}),
+    ok.

@@ -45,7 +45,7 @@ handle_cast({multi_call, ReplyTo, Nodes, Msg},
     %% 'infinity' does not cause it to wait for badnodes to become
     %% good.
     Result = gen_server:multi_call(Nodes, ?TARGET, Msg, infinity),
-    ReplyTo ! {comms, Token, Result},
+    gen_server:cast(ReplyTo, {comms, Token, Result}),
     {noreply, State};
 handle_cast({multi_cast, Nodes, Msg}, State) ->
     abcast = gen_server:abcast(Nodes, ?TARGET, Msg),

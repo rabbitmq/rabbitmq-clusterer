@@ -136,7 +136,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%----------------------------------------------------------------------------
 
 internal_config_path() ->
-    filename:join(rabbit_mnesia:dir(), "cluster.config").
+    rabbit_mnesia:dir() ++ "-cluster.config".
 
 external_config_path() ->
     application:get_env(rabbit, cluster_config).
@@ -218,10 +218,14 @@ process_transitioner_response(shutdown, State = #state { config = Config }) ->
     reset_shutdown(
       State1 #state { transitioner       = undefined,
                       transitioner_state = {shutdown, undefined} });
-process_transitioner_response({success, Config}, State) ->
-    ok = write_internal_config(Config),
+process_transitioner_response({success, ConfigNew},
+                              State = #state { config = ConfigOld }) ->
+    %% Just to be safe, merge through the node_id_maps
+    ConfigNew1 = rabbit_clusterer_utils:merge_node_id_maps(ConfigNew, ConfigOld),
+    ok = write_internal_config(ConfigNew1),
     {ok, State1} = stop_comms(State #state { transitioner = undefined,
-                                             transitioner_state = undefined }),
+                                             transitioner_state = undefined,
+                                             config = ConfigNew1 }),
     reply_awaiting_ok(State1);
 process_transitioner_response({config_changed, ConfigNew},
                               State = #state { config = ConfigOld }) ->
