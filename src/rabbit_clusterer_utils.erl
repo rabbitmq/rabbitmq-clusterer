@@ -11,7 +11,9 @@
          merge_configs/2,
          add_node_id/3,
          eliminate_mnesia_dependencies/0,
-         configure_cluster/1]).
+         configure_cluster/1,
+         stop_mnesia/0,
+         ensure_start_mnesia/0]).
 
 default_config() ->
     proplist_config_to_record(
@@ -172,10 +174,20 @@ create_node_id() ->
     erlang:md5(term_to_binary({node(), make_ref()})).
 
 wipe_mnesia() ->
-    application:stop(mnesia),
+    ok = stop_mnesia(),
     ok = rabbit_mnesia:force_reset(),
-    application:start(mnesia),
+    ok = ensure_start_mnesia(),
     ok.
+
+stop_mnesia() ->
+    case application:stop(mnesia) of
+        ok                             -> ok;
+        {error, {not_started, mnesia}} -> ok;
+        Other                          -> Other
+    end.
+
+ensure_start_mnesia() ->
+    application:ensure_started(mnesia).
 
 eliminate_mnesia_dependencies() ->
     %% rabbit_table:force_load() does not error if

@@ -8,6 +8,8 @@
          terminate/2, code_change/3]).
 
 -define(SERVER, ?MODULE).
+-define(IS_TRANSITIONER(X),
+        (X =:= rabbit_clusterer_join orelse X =:= rabbit_clusterer_rejoin)).
 
 -record(state, { status,
                  boot_blocker,
@@ -208,19 +210,28 @@ write_internal_config(Config) ->
     ok = rabbit_file:write_term_file(internal_config_path(), [Proplist]).
 
 %%----------------------------------------------------------------------------
-%% Signalling to waiting process
+%% Status changes state machine
 %%----------------------------------------------------------------------------
 
 %% Here we enforce the state machine of valid changes to status
-set_status(NewStatus, State = #state { status = preboot })
-  when NewStatus =:= rabbit_clusterer_join orelse
-       NewStatus =:= rabbit_clusterer_rejoin ->
-    State #state { status = {transitioner, NewStatus} };
+%% preboot           -> a transitioner module ({transitioner, TModule})
+%% {transitioner, _} -> a transitioner module
+%% {transitioner, _} -> pending_shutdown
+%% {transitioner, _} -> booting
+%% pending_shutdown  -> shutdown
+%% pending_shutdown  -> a transitioner module
+%% booting           -> ready
+
 set_status(NewStatus, State = #state { status = {transitioner, _} })
-  when (NewStatus =:= rabbit_clusterer_join orelse
-        NewStatus =:= rabbit_clusterer_rejoin) ->
+  when ?IS_TRANSITIONER(NewStatus) ->
     State #state { status = NewStatus };
+set_status(NewStatus, State = #state { status = OldStatus })
+  when (OldStatus =:= preboot orelse OldStatus =:= pending_shutdown) andalso
+       ?IS_TRANSITIONER(NewStatus) ->
+    ok = rabbit_clusterer_utils:ensure_start_mnesia(),
+    State #state { status = {transitioner, NewStatus} };
 set_status(pending_shutdown, State = #state { status = {transitioner, _} }) ->
+    ok = rabbit_clusterer_utils:stop_mnesia(),
     State #state { status = pending_shutdown };
 set_status(booting, State = #state { status       = {transitioner, _},
                                      boot_blocker = Blocker }) ->
