@@ -34,11 +34,11 @@ event({comms, {[], _BadNodes}}, State = #state { state = awaiting_status }) ->
     delayed_request_status(State);
 event({comms, {Replies, BadNodes}}, State = #state { state  = awaiting_status,
                                                      config = Config }) ->
-    {Youngest, OlderThanUs, TransDict} =
+    {Youngest, OlderThanUs, StatusDict} =
         lists:foldr(
-          fun ({Node, preboot}, {YoungestN, OlderThanUsN, TransDictN}) ->
-                  {YoungestN, OlderThanUsN, dict:append(preboot, Node, TransDictN)};
-              ({Node, {ConfigN, TModuleN}}, {YoungestN, OlderThanUsN, TransDictN}) ->
+          fun ({Node, preboot}, {YoungestN, OlderThanUsN, StatusDictN}) ->
+                  {YoungestN, OlderThanUsN, dict:append(preboot, Node, StatusDictN)};
+              ({Node, {ConfigN, StatusN}}, {YoungestN, OlderThanUsN, StatusDictN}) ->
                   {case rabbit_clusterer_utils:compare_configs(ConfigN, YoungestN) of
                        gt -> rabbit_clusterer_utils:merge_configs(ConfigN, YoungestN);
                        invalid ->
@@ -53,20 +53,20 @@ event({comms, {Replies, BadNodes}}, State = #state { state  = awaiting_status,
                            throw("Configs with same version numbers but semantically different");
                        _  -> OlderThanUsN
                    end,
-                   dict:append(TModuleN, Node, TransDictN)}
-                 end, {Config, [], dict:new()}, Replies),
-    %% Expected keys in TransDict are:
+                   dict:append(StatusN, Node, StatusDictN)}
+          end, {Config, [], dict:new()}, Replies),
+    %% Expected keys in StatusDict are:
     %% - preboot:
     %%    clusterer has started, but the boot step not yet hit
-    %% - rabbit_clusterer_join (i.e. ?MODULE):
+    %% - {transitioner, rabbit_clusterer_join} (i.e. ?MODULE):
     %%    it's joining some cluster - blocked in clusterer
-    %% - rabbit_clusterer_rejoin:
+    %% - {transitioner, rabbit_clusterer_rejoin}:
     %%    it's rejoining some cluster - blocked in clusterer
     %% - booting:
     %%    clusterer is happy and the rest of rabbit is currently booting
     %% - ready:
     %%    clusterer is happy and enough of rabbit has booted
-    %% - undefined:
+    %% - pending_shutdown:
     %%    clusterer is waiting for the shutdown timeout and will then exit
     case rabbit_clusterer_utils:compare_configs(Youngest, Config) of
         eq ->
@@ -84,11 +84,11 @@ event({comms, {Replies, BadNodes}}, State = #state { state  = awaiting_status,
                     update_remote_nodes(OlderThanUs, State1);
                 [] ->
                     %% Everyone here has the same config
-                    ReadyNodes = case dict:find(ready, TransDict) of
+                    ReadyNodes = case dict:find(ready, StatusDict) of
                                      {ok, List} -> List;
                                      error      -> []
                                  end,
-                    AllJoining = [?MODULE] =:= dict:fetch_keys(TransDict),
+                    AllJoining = [{transitioner, ?MODULE}] =:= dict:fetch_keys(StatusDict),
                     %% ReadyNodes are nodes that are in this cluster
                     %% (well, they could be in any cluster, but seeing
                     %% as we've checked everyone has the same cluster
@@ -108,7 +108,7 @@ event({comms, {Replies, BadNodes}}, State = #state { state  = awaiting_status,
                     %% If ReadyNodes doesn't exist we can only safely
                     %% proceed if there are no BadNodes, and everyone
                     %% is joining (rather than rejoining)
-                    %% i.e. transistion module for all is ?MODULE. In
+                    %% i.e. transition module for all is ?MODULE. In
                     %% all other cases, we must wait:
                     %%
                     %% - If BadNodes =/= [] then there may be a node
@@ -118,7 +118,7 @@ event({comms, {Replies, BadNodes}}, State = #state { state  = awaiting_status,
                     %%   and then become ready: we could then sync to
                     %%   it.
                     %%
-                    %% - If the transistion module is not all ?MODULE
+                    %% - If the transition module is not all ?MODULE
                     %%   then some other nodes must be rejoining. We
                     %%   should wait for them to succeed (or at least
                     %%   change state) because if they do succeed we
@@ -162,9 +162,9 @@ event({comms, {Replies, BadNodes}}, State = #state { state  = awaiting_status,
 event({delayed_request_status, Ref},
       State = #state { state = {delayed_request_status, Ref} }) ->
     request_status(State);
-event({request_status, _Ref}, State) ->
+event({delayed_request_status, _Ref}, State) ->
     %% ignore it
-    {continue, State};
+    {configure, State};
 event({node_reset, _Node}, State) ->
     %% I don't think we need to do anything here.
     {continue, State}.

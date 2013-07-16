@@ -10,9 +10,8 @@
 -define(SERVER, ?MODULE).
 
 -record(state, { status,
-                 awaiting_cluster,
+                 boot_blocker,
                  config,
-                 transitioner,
                  transitioner_state,
                  comms
                }).
@@ -34,26 +33,20 @@ ready_to_cluster() ->
 init([]) ->
     ok = rabbit_mnesia:ensure_mnesia_dir(),
     {ok, #state { status             = preboot,
-                  awaiting_cluster   = [],
+                  boot_blocker       = undefined,
                   config             = undefined,
-                  transitioner       = undefined,
                   transitioner_state = undefined,
                   comms              = undefined }}.
 
 handle_call(await_coordination, From,
-            State = #state { status = preboot, awaiting_cluster = [] }) ->
+            State = #state { status       = preboot,
+                             boot_blocker = undefined }) ->
     %% We deliberately don't start doing any clustering work until we
     %% get this call. This is because we need to wait for the boot
     %% step to make the call as only by then can we be sure that
     %% things like the file_handle_cache have been started up.
-    {noreply, begin_clustering(State #state { status           = undefined,
-                                              awaiting_cluster = [From] })};
-handle_call(awaiting_cluster, From,
-            State = #state { status = undefined, awaiting_cluster = AC }) ->
-    {noreply, State #state { awaiting_cluster = [From | AC] }};
-handle_call(await_coordination, _From, State = #state { status = Status }) ->
-    {reply, Status, State};
-handle_call({request_status, _Node, _NodeID}, From,
+    {noreply, begin_clustering(State #state { boot_blocker = From })};
+handle_call({request_status, _Node, _NodeID}, _From,
             State = #state { status = preboot }) ->
     %% If status = preboot then we have the situation that a remote
     %% node is contacting us before we've even started reading in our
@@ -62,21 +55,16 @@ handle_call({request_status, _Node, _NodeID}, From,
     {reply, preboot, State};
 handle_call({request_status, Node, NodeID}, From,
             State = #state { config             = Config,
-                             transitioner       = TModule,
                              transitioner_state = TState,
                              status             = Status }) ->
-    ResultStatus = case TModule of
-                       undefined -> Status;
-                       _         -> TModule
-                   end,
     {NodeIDChanged, Config1} =
         rabbit_clusterer_utils:add_node_id(Node, NodeID, Config),
-    gen_server:reply(From, {Config1, ResultStatus}),
+    gen_server:reply(From, {Config1, Status}),
     State1 = State #state { config = Config1 },
-    State2 = case TModule of
-                 undefined ->
+    State2 = case Status of
+                 pending_shutdown ->
                      reset_shutdown(State1);
-                 _ when NodeIDChanged ->
+                 {transitioner, TModule} when NodeIDChanged ->
                      process_transitioner_response(
                        TModule:event({node_reset, Node}, TState), State1);
                  _ ->
@@ -88,14 +76,16 @@ handle_call(Msg, From, State) ->
 
 handle_cast({comms, Comms, Result},
             State = #state { comms              = Comms,
-                             transitioner       = TModule,
-                             transitioner_state = TState })
-  when TModule =/= undefined ->
-    {noreply, process_transitioner_response(
-                TModule:event({comms, Result}, TState), State)};
-handle_cast({comms, _Comms, _Result}, State) ->
-    %% Must be from an old comms. Ignore silently by design.
-    {noreply, State};
+                             status             = Status,
+                             transitioner_state = TState }) ->
+    {noreply,
+     case Status of
+         {transitioner, TModule} ->
+             process_transitioner_response(
+               TModule:event({comms, Result}, TState), State);
+         _ -> %% Must be from an old comms. Ignore silently by design.
+             State
+     end};
 handle_cast({new_config, _ConfigNew}, State = #state { status = preboot }) ->
     %% ignore it, we'll recover later
     {noreply, State};
@@ -104,7 +94,7 @@ handle_cast({new_config, ConfigNew}, State = #state { config = ConfigOld }) ->
     %% TODO: we may well need to reboot rabbit here
     {noreply, begin_transition(rabbit_clusterer_join, ConfigNew1, State)};
 handle_cast(ready_to_cluster, State = #state { status = booting }) ->
-    {noreply, State #state { status = ready }};
+    {noreply, set_status(ready, State)};
 handle_cast(ready_to_cluster, State) ->
     %% Complex race: we thought we were booting up and so status would
     %% have been 'booting' at some point, but since then someone else
@@ -118,21 +108,19 @@ handle_cast(Msg, State) ->
     {stop, {unhandled_cast, Msg}, State}.
 
 handle_info({shutdown, Ref},
-            State = #state { status = undefined,
-                             transitioner = undefined,
+            State = #state { status = pending_shutdown,
                              transitioner_state = {shutdown, Ref} }) ->
-    {stop, normal,
-     reply_awaiting(shutdown, State #state { transitioner = undefined })};
+    {stop, normal, set_status(shutdown, State)};
 handle_info({shutdown, _Ref}, State) ->
     %% Something saved us in the meanwhilst!
     {noreply, State};
-handle_info({transitioner_delay, _Event},
-            State = #state { transitioner = undefined }) ->
-    {noreply, State};
 handle_info({transitioner_delay, Event},
-            State = #state { transitioner       = TModule,
+            State = #state { status             = {transitioner, TModule},
                              transitioner_state = TState }) ->
-    {noreply, process_transitioner_response(TModule:event(Event, TState), State)};
+    {noreply,
+     process_transitioner_response(TModule:event(Event, TState), State)};
+handle_info({transitioner_delay, _Event}, State) ->
+    {noreply, State};
 handle_info(Msg, State) ->
     {stop, {unhandled_info, Msg}, State}.
 
@@ -220,13 +208,36 @@ write_internal_config(Config) ->
     ok = rabbit_file:write_term_file(internal_config_path(), [Proplist]).
 
 %%----------------------------------------------------------------------------
-%% Signalling to waiting processes
+%% Signalling to waiting process
 %%----------------------------------------------------------------------------
 
-reply_awaiting(Term, State = #state { awaiting_cluster = AC,
-                                      status = undefined }) ->
-    [gen_server:reply(From, Term) || From <- AC],
-    State #state { awaiting_cluster = [], status = Term }.
+%% Here we enforce the state machine of valid changes to status
+set_status(NewStatus, State = #state { status = preboot })
+  when NewStatus =:= rabbit_clusterer_join orelse
+       NewStatus =:= rabbit_clusterer_rejoin ->
+    State #state { status = {transitioner, NewStatus} };
+set_status(NewStatus, State = #state { status = {transitioner, _} })
+  when (NewStatus =:= rabbit_clusterer_join orelse
+        NewStatus =:= rabbit_clusterer_rejoin) ->
+    State #state { status = NewStatus };
+set_status(pending_shutdown, State = #state { status = {transitioner, _} }) ->
+    State #state { status = pending_shutdown };
+set_status(booting, State = #state { status       = {transitioner, _},
+                                     boot_blocker = Blocker }) ->
+    case Blocker of
+        undefined -> ok;
+        _         -> gen_server:reply(Blocker, ok)
+    end,
+    State #state { status = booting, boot_blocker = undefined };
+set_status(ready, State = #state { status = booting }) ->
+    State #state { status = ready };
+set_status(shutdown, State = #state { status       = pending_shutdown,
+                                      boot_blocker = Blocker }) ->
+    case Blocker of
+        undefined -> ok;
+        _         -> gen_server:reply(Blocker, shutdown)
+    end,
+    State #state { status = shutdown, boot_blocker = undefined }.
 
 
 %%----------------------------------------------------------------------------
@@ -235,10 +246,9 @@ reply_awaiting(Term, State = #state { awaiting_cluster = AC,
 
 begin_transition(TModule, Config, State) ->
     {ok, Comms, State1} = fresh_comms(State),
-    process_transitioner_response(TModule:init(Config, Comms),
-                                  State1 #state { status       = undefined,
-                                                  transitioner = TModule,
-                                                  config       = Config }).
+    process_transitioner_response(
+      TModule:init(Config, Comms),
+      set_status(TModule, State1 #state { config = Config })).
 
 
 process_transitioner_response({continue, TState}, State) ->
@@ -249,18 +259,15 @@ process_transitioner_response(shutdown, State = #state { config = Config }) ->
     %% and try to start up with an outdated config.
     ok = write_internal_config(Config),
     {ok, State1} = stop_comms(State),
-    reset_shutdown(
-      State1 #state { transitioner       = undefined,
-                      transitioner_state = {shutdown, undefined} });
+    reset_shutdown(set_status(pending_shutdown, State1));
 process_transitioner_response({success, ConfigNew},
                               State = #state { config = ConfigOld }) ->
     %% Just to be safe, merge through the configs
     ConfigNew1 = rabbit_clusterer_utils:merge_configs(ConfigNew, ConfigOld),
     ok = write_internal_config(ConfigNew1),
-    {ok, State1} = stop_comms(State #state { transitioner = undefined,
-                                             transitioner_state = undefined,
-                                             config = ConfigNew1 }),
-    reply_awaiting(booting, State1);
+    {ok, State1} = stop_comms(State #state { transitioner_state = undefined,
+                                             config             = ConfigNew1 }),
+    set_status(booting, State1);
 process_transitioner_response({config_changed, ConfigNew},
                               State = #state { config = ConfigOld }) ->
     %% Just to be safe, merge through the configs
@@ -284,16 +291,15 @@ stop_comms(State = #state { comms = Token }) ->
     ok = rabbit_clusterer_comms:stop(Token),
     {ok, State #state { comms = undefined }}.
 
-reset_shutdown(State = #state { config = #config { shutdown_timeout = Timeout },
-                                transitioner = undefined,
-                                transitioner_state = {shutdown, _Ref} }) ->
-    case Timeout of
-        infinity ->
-            State  #state { transitioner_state = undefined };
-        _ ->
-            Ref = make_ref(),
-            erlang:send_after(Timeout*1000, self(), {shutdown, Ref}),
-            State #state { transitioner_state = {shutdown, Ref} }
-    end;
+reset_shutdown(State = #state {
+                          status = pending_shutdown,
+                          config = #config { shutdown_timeout = infinity } }) ->
+    State #state { transitioner_state = undefined };
+reset_shutdown(State = #state {
+                          status = pending_shutdown,
+                          config = #config { shutdown_timeout = Timeout } }) ->
+    Ref = make_ref(),
+    erlang:send_after(Timeout*1000, self(), {shutdown, Ref}),
+    State #state { transitioner_state = {shutdown, Ref} };
 reset_shutdown(State) ->
     State.

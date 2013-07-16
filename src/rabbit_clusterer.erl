@@ -30,8 +30,8 @@ stop(_State) ->
 await_clustering() ->
     %% We need to ensure the app is already started:
     ok = application:ensure_started(?APP),
-    %% We may need to cope with 'booting' or 'ready' here
-    booting = rabbit_clusterer_coordinator:await_coordination(),
+    %% deliberate badmatch against shutdown. TODO tidy/improve
+    ok = rabbit_clusterer_coordinator:await_coordination(),
     ok.
 
 ready_to_cluster() ->
