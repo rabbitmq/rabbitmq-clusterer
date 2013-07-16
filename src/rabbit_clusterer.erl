@@ -10,6 +10,7 @@
    {rabbit_clusterer_p1,
     [{description, "Declarative Clustering - part 1"},
      {mfa, {?MODULE, await_clustering, []}},
+     {requires, file_handle_cache},
      {enables, database}]}).
 
 -rabbit_boot_step(

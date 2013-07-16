@@ -33,29 +33,22 @@ ready_to_cluster() ->
 
 init([]) ->
     ok = rabbit_mnesia:ensure_mnesia_dir(),
-    State = #state { status             = undefined,
-                     awaiting_cluster   = [],
-                     config             = undefined,
-                     transitioner       = undefined,
-                     transitioner_state = undefined,
-                     comms              = undefined },
-    case choose_config() of
-        {undefined, undefined} ->
-            %% No config at all, 'join' the default.
-            {ok, begin_transition(
-                   rabbit_clusterer_join,
-                   rabbit_clusterer_utils:default_config(), State)};
-        {Config, Config} ->
-            %% Configuration has not changed. We think.
-            {ok, begin_transition(rabbit_clusterer_rejoin, Config, State)};
-        {NewConfig, OldConfig} ->
-            %% New cluster config has been applied
-            NewConfig1 =
-                rabbit_clusterer_utils:merge_configs(NewConfig, OldConfig),
-            {ok, begin_transition(rabbit_clusterer_join, NewConfig1, State)}
-    end.
+    {ok, #state { status             = preboot,
+                  awaiting_cluster   = [],
+                  config             = undefined,
+                  transitioner       = undefined,
+                  transitioner_state = undefined,
+                  comms              = undefined }}.
 
 handle_call(await_coordination, From,
+            State = #state { status = preboot, awaiting_cluster = [] }) ->
+    %% We deliberately don't start doing any clustering work until we
+    %% get this call. This is because we need to wait for the boot
+    %% step to make the call as only by then can we be sure that
+    %% things like the file_handle_cache have been started up.
+    {noreply, begin_clustering(State #state { status           = undefined,
+                                              awaiting_cluster = [From] })};
+handle_call(awaiting_cluster, From,
             State = #state { status = undefined, awaiting_cluster = AC }) ->
     {noreply, State #state { awaiting_cluster = [From | AC] }};
 handle_call(await_coordination, _From, State = #state { status = Status }) ->
@@ -143,6 +136,31 @@ code_change(_OldVsn, State, _Extra) ->
 %%----------------------------------------------------------------------------
 %% Cluster config loading and selection
 %%----------------------------------------------------------------------------
+
+begin_clustering(State) ->
+    {TModule, Config} =
+        case choose_config() of
+            {undefined, undefined} ->
+                %% No config at all, 'join' the default.
+                {rabbit_clusterer_join, rabbit_clusterer_utils:default_config()};
+            {NewConfig, undefined} ->
+                {rabbit_clusterer_join, NewConfig};
+            {undefined, OldConfig} ->
+                {rabbit_clusterer_rejoin, OldConfig};
+            {NewConfig, OldConfig} ->
+                case rabbit_clusterer_utils:compare_configs(NewConfig, OldConfig) of
+                    gt ->
+                        %% New cluster config has been applied
+                        NewConfig1 =
+                            rabbit_clusterer_utils:merge_configs(NewConfig, OldConfig),
+                        {rabbit_clusterer_join, NewConfig1};
+                    _ ->
+                        %% All other cases, we ignore the user-provided config.
+                        %% TODO: we might want to log this decision.
+                        {rabbit_clusterer_rejoin, OldConfig}
+                end
+        end,
+    begin_transition(TModule, Config, State).
 
 internal_config_path() ->
     rabbit_mnesia:dir() ++ "-cluster.config".

@@ -26,8 +26,8 @@ init(Config = #config { nodes = Nodes,
         ram when length(Nodes) =:= 1 ->
             {error, ram_only_cluster_config};
         _ ->
-            request_status(#state { config  = Config,
-                                    comms   = Comms })
+            request_status(#state { config = Config,
+                                    comms  = Comms })
     end.
 
 event({comms, {[], _BadNodes}}, State = #state { state = awaiting_status }) ->
