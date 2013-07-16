@@ -36,7 +36,9 @@ event({comms, {Replies, BadNodes}}, State = #state { state  = awaiting_status,
                                                      config = Config }) ->
     {Youngest, OlderThanUs, TransDict} =
         lists:foldr(
-          fun ({Node, {ConfigN, TModuleN}}, {YoungestN, OlderThanUsN, TransDictN}) ->
+          fun ({Node, preboot}, {YoungestN, OlderThanUsN, TransDictN}) ->
+                  {YoungestN, OlderThanUsN, dict:append(preboot, Node, TransDictN)};
+              ({Node, {ConfigN, TModuleN}}, {YoungestN, OlderThanUsN, TransDictN}) ->
                   {case rabbit_clusterer_utils:compare_configs(ConfigN, YoungestN) of
                        gt -> rabbit_clusterer_utils:merge_configs(ConfigN, YoungestN);
                        invalid ->
@@ -53,6 +55,19 @@ event({comms, {Replies, BadNodes}}, State = #state { state  = awaiting_status,
                    end,
                    dict:append(TModuleN, Node, TransDictN)}
                  end, {Config, [], dict:new()}, Replies),
+    %% Expected keys in TransDict are:
+    %% - preboot:
+    %%    clusterer has started, but the boot step not yet hit
+    %% - rabbit_clusterer_join (i.e. ?MODULE):
+    %%    it's joining some cluster - blocked in clusterer
+    %% - rabbit_clusterer_rejoin:
+    %%    it's rejoining some cluster - blocked in clusterer
+    %% - booting:
+    %%    clusterer is happy and the rest of rabbit is currently booting
+    %% - ready:
+    %%    clusterer is happy and enough of rabbit has booted
+    %% - undefined:
+    %%    clusterer is waiting for the shutdown timeout and will then exit
     case rabbit_clusterer_utils:compare_configs(Youngest, Config) of
         eq ->
             %% We have the most up to date config. But we must use
@@ -61,48 +76,85 @@ event({comms, {Replies, BadNodes}}, State = #state { state  = awaiting_status,
             State1 = State #state { config = Youngest },
             #config { nodes = Nodes, gospel = Gospel } = Youngest,
             case OlderThanUs of
-                [] ->
-                    %% Everyone here has the same config
-                    {Wipe, Leader} =
-                        case Gospel of
-                            {node, Node} ->
-                                {Node =/= node(), Node};
-                            reset ->
-                                [Leader1 | _] =
-                                    lists:usort([N || {N, disc} <- Nodes]),
-                                {true, Leader1}
-                        end,
-                    %% ASSERTION: Be sure that we know about Leader somehow
-                    true = Leader =:= node() orelse
-                        lists:member(Leader, BadNodes) orelse
-                        lists:keymember(Leader, 1, Replies),
-                    ReadyNodes = case dict:find(ready, TransDict) of
-                                     {ok, List} -> List;
-                                     error      -> []
-                                 end,
-                    AwaitingLeader = Leader =/= node()
-                        andalso (lists:member(Leader, BadNodes)
-                                 orelse not lists:member(Leader, ReadyNodes)),
-                    case AwaitingLeader of
-                        true ->
-                            delayed_request_status(State1);
-                        false ->
-                            ok = case Wipe of
-                                     true  -> rabbit_clusterer_utils:wipe_mnesia();
-                                     false -> rabbit_clusterer_utils:eliminate_mnesia_dependencies()
-                                 end,
-                            ok = case node() of
-                                     Leader -> ok;
-                                     _      -> rabbit_clusterer_utils:configure_cluster(Nodes)
-                                 end,
-                            {success, Youngest}
-                    end;
                 [_|_] ->
                     %% Update nodes which are older than us. In
                     %% reality they're likely to receive lots of the
                     %% same update from everyone else, but meh,
                     %% they'll just have to cope.
-                    update_remote_nodes(OlderThanUs, State1)
+                    update_remote_nodes(OlderThanUs, State1);
+                [] ->
+                    %% Everyone here has the same config
+                    ReadyNodes = case dict:find(ready, TransDict) of
+                                     {ok, List} -> List;
+                                     error      -> []
+                                 end,
+                    AllJoining = [?MODULE] =:= dict:fetch_keys(TransDict),
+                    %% ReadyNodes are nodes that are in this cluster
+                    %% (well, they could be in any cluster, but seeing
+                    %% as we've checked everyone has the same cluster
+                    %% config as us, we're sure it really is *this*
+                    %% cluster) and are fully up and running.
+                    %%
+                    %% If ReadyNodes exists, we should just reset and
+                    %% join into that, and ignore anything about
+                    %% gospel: it's possible that gosple is {node,
+                    %% node()} but that, in combination with
+                    %% ReadyNodes, suggests that the cluster
+                    %% previously existed with an older version of
+                    %% 'us': we must have been cleaned out and
+                    %% restarted (aka host-name reuse). Here we don't
+                    %% care about BadNodes.
+                    %%
+                    %% If ReadyNodes doesn't exist we can only safely
+                    %% proceed if there are no BadNodes, and everyone
+                    %% is joining (rather than rejoining)
+                    %% i.e. transistion module for all is ?MODULE. In
+                    %% all other cases, we must wait:
+                    %%
+                    %% - If BadNodes =/= [] then there may be a node
+                    %%   that was cleanly shutdown last with what we
+                    %%   think is the current config and so if it was
+                    %%   started up, it would rejoin (itself, sort of)
+                    %%   and then become ready: we could then sync to
+                    %%   it.
+                    %%
+                    %% - If the transistion module is not all ?MODULE
+                    %%   then some other nodes must be rejoining. We
+                    %%   should wait for them to succeed (or at least
+                    %%   change state) because if they do succeed we
+                    %%   should sync off them.
+                    case ReadyNodes of
+                        [_|_] ->
+                            ok = rabbit_clusterer_utils:wipe_mnesia(),
+                            ok = rabbit_clusterer_utils:configure_cluster(Nodes),
+                            {success, Youngest};
+                        [] when AllJoining andalso BadNodes =:= [] ->
+                            {Wipe, Leader} =
+                                case Gospel of
+                                    {node, Node} ->
+                                        {Node =/= node(), Node};
+                                    reset ->
+                                        [Leader1 | _] =
+                                            lists:usort([N || {N, disc} <- Nodes]),
+                                        {true, Leader1}
+                                end,
+                            case node() of
+                                Leader ->
+                                    ok = case Wipe of
+                                             true  -> rabbit_clusterer_utils:wipe_mnesia();
+                                             false -> rabbit_clusterer_utils:eliminate_mnesia_dependencies()
+                                         end,
+                                    ok = case node() of
+                                             Leader -> ok;
+                                             _      -> rabbit_clusterer_utils:configure_cluster(Nodes)
+                                         end,
+                                    {success, Youngest};
+                                _ ->
+                                    delayed_request_status(State1)
+                            end;
+                        [] ->
+                            delayed_request_status(State1)
+                    end
             end;
         _ ->
             {config_changed, Youngest}

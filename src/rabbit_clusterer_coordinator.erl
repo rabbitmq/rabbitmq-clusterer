@@ -53,6 +53,13 @@ handle_call(awaiting_cluster, From,
     {noreply, State #state { awaiting_cluster = [From | AC] }};
 handle_call(await_coordination, _From, State = #state { status = Status }) ->
     {reply, Status, State};
+handle_call({request_status, _Node, _NodeID}, From,
+            State = #state { status = preboot }) ->
+    %% If status = preboot then we have the situation that a remote
+    %% node is contacting us before we've even started reading in our
+    %% cluster configs. We need to ignore them. They'll either wait
+    %% for us, or they'll start up and bring us in later on anyway.
+    {reply, preboot, State};
 handle_call({request_status, Node, NodeID}, From,
             State = #state { config             = Config,
                              transitioner       = TModule,
@@ -88,6 +95,9 @@ handle_cast({comms, Comms, Result},
                 TModule:event({comms, Result}, TState), State)};
 handle_cast({comms, _Comms, _Result}, State) ->
     %% Must be from an old comms. Ignore silently by design.
+    {noreply, State};
+handle_cast({new_config, _ConfigNew}, State = #state { status = preboot }) ->
+    %% ignore it, we'll recover later
     {noreply, State};
 handle_cast({new_config, ConfigNew}, State = #state { config = ConfigOld }) ->
     ConfigNew1 = rabbit_clusterer_utils:merge_configs(ConfigNew, ConfigOld),

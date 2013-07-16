@@ -49,6 +49,7 @@ proplist_config_to_record(Proplist) when is_list(Proplist) ->
                             {Pos + 1, setelement(Pos, ConfigN, Value)}
                     end, {2, Config}, Fields),
     Nodes1 = normalise_nodes(Nodes),
+    true = [] =/= [N || {N, disc} <- Nodes1], %% ASSERTION
     Config2 = #config { gospel = Gospel } =
         tidy_node_id_maps(Config1 #config { nodes = Nodes1 }),
     case Gospel of
