@@ -2,7 +2,7 @@
 
 -behaviour(gen_server).
 
--export([await_coordination/0]).
+-export([await_coordination/0, ready_to_cluster/0]).
 
 -export([start_link/0, init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
@@ -11,7 +11,6 @@
 
 -record(state, { status,
                  awaiting_cluster,
-                 node_id,
                  config,
                  transitioner,
                  transitioner_state,
@@ -26,36 +25,34 @@ start_link() ->
 await_coordination() ->
     gen_server:call(?SERVER, await_coordination, infinity).
 
+ready_to_cluster() ->
+    gen_server:cast(?SERVER, ready_to_cluster),
+    ok.
+
 %%----------------------------------------------------------------------------
 
 init([]) ->
     ok = rabbit_mnesia:ensure_mnesia_dir(),
     State = #state { status             = undefined,
                      awaiting_cluster   = [],
-                     node_id            = undefined,
                      config             = undefined,
                      transitioner       = undefined,
                      transitioner_state = undefined,
                      comms              = undefined },
-    State1 = #state { node_id = NodeId } =
-        case rabbit_clusterer_utils:ensure_node_id() of
-            {ok, NodeId1} -> State #state { node_id = NodeId1 };
-            Err1         -> reply_awaiting(Err1, State)
-        end,
     case choose_config() of
         {undefined, undefined} ->
             %% No config at all, 'join' the default.
             {ok, begin_transition(
                    rabbit_clusterer_join,
-                   rabbit_clusterer_utils:default_config(NodeId), State1)};
+                   rabbit_clusterer_utils:default_config(), State)};
         {Config, Config} ->
             %% Configuration has not changed. We think.
-            {ok, begin_transition(rabbit_clusterer_rejoin, Config, State1)};
+            {ok, begin_transition(rabbit_clusterer_rejoin, Config, State)};
         {NewConfig, OldConfig} ->
             %% New cluster config has been applied
             NewConfig1 =
-                rabbit_clusterer_utils:merge_node_id_maps(NewConfig, OldConfig),
-            {ok, begin_transition(rabbit_clusterer_join, NewConfig1, State1)}
+                rabbit_clusterer_utils:merge_configs(NewConfig, OldConfig),
+            {ok, begin_transition(rabbit_clusterer_join, NewConfig1, State)}
     end.
 
 handle_call(await_coordination, From,
@@ -68,9 +65,9 @@ handle_call({request_status, Node, NodeID}, From,
                              transitioner       = TModule,
                              transitioner_state = TState,
                              status             = Status }) ->
-    ResultStatus = case Status of
-                       ok -> ok;
-                       _  -> TModule
+    ResultStatus = case TModule of
+                       undefined -> Status;
+                       _         -> TModule
                    end,
     {NodeIDChanged, Config1} =
         rabbit_clusterer_utils:add_node_id(Node, NodeID, Config),
@@ -100,8 +97,20 @@ handle_cast({comms, _Comms, _Result}, State) ->
     %% Must be from an old comms. Ignore silently by design.
     {noreply, State};
 handle_cast({new_config, ConfigNew}, State = #state { config = ConfigOld }) ->
-    ConfigNew1 = rabbit_clusterer_utils:merge_node_id_maps(ConfigNew, ConfigOld),
+    ConfigNew1 = rabbit_clusterer_utils:merge_configs(ConfigNew, ConfigOld),
+    %% TODO: we may well need to reboot rabbit here
     {noreply, begin_transition(rabbit_clusterer_join, ConfigNew1, State)};
+handle_cast(ready_to_cluster, State = #state { status = booting }) ->
+    {noreply, State #state { status = ready }};
+handle_cast(ready_to_cluster, State) ->
+    %% Complex race: we thought we were booting up and so status would
+    %% have been 'booting' at some point, but since then someone else
+    %% has provided a new config (and we decided not to reboot - TODO
+    %% - is this possible?). Consequenctly rabbit has now passed the
+    %% mnesia boot step and is continuing to boot up. Presumably we
+    %% actually just want to reboot in the future after rabbit has
+    %% finished (erroneously) booting...
+    {noreply, State};
 handle_cast(Msg, State) ->
     {stop, {unhandled_cast, Msg}, State}.
 
@@ -186,9 +195,6 @@ write_internal_config(Config) ->
 %% Signalling to waiting processes
 %%----------------------------------------------------------------------------
 
-reply_awaiting_ok(State) ->
-    reply_awaiting(ok, State).
-
 reply_awaiting(Term, State = #state { awaiting_cluster = AC,
                                       status = undefined }) ->
     [gen_server:reply(From, Term) || From <- AC],
@@ -199,9 +205,9 @@ reply_awaiting(Term, State = #state { awaiting_cluster = AC,
 %% Changing cluster config
 %%----------------------------------------------------------------------------
 
-begin_transition(TModule, Config, State = #state { node_id = NodeID }) ->
+begin_transition(TModule, Config, State) ->
     {ok, Comms, State1} = fresh_comms(State),
-    process_transitioner_response(TModule:init(Config, NodeID, Comms),
+    process_transitioner_response(TModule:init(Config, Comms),
                                   State1 #state { status       = undefined,
                                                   transitioner = TModule,
                                                   config       = Config }).
@@ -220,17 +226,17 @@ process_transitioner_response(shutdown, State = #state { config = Config }) ->
                       transitioner_state = {shutdown, undefined} });
 process_transitioner_response({success, ConfigNew},
                               State = #state { config = ConfigOld }) ->
-    %% Just to be safe, merge through the node_id_maps
-    ConfigNew1 = rabbit_clusterer_utils:merge_node_id_maps(ConfigNew, ConfigOld),
+    %% Just to be safe, merge through the configs
+    ConfigNew1 = rabbit_clusterer_utils:merge_configs(ConfigNew, ConfigOld),
     ok = write_internal_config(ConfigNew1),
     {ok, State1} = stop_comms(State #state { transitioner = undefined,
                                              transitioner_state = undefined,
                                              config = ConfigNew1 }),
-    reply_awaiting_ok(State1);
+    reply_awaiting(booting, State1);
 process_transitioner_response({config_changed, ConfigNew},
                               State = #state { config = ConfigOld }) ->
-    %% Just to be safe, merge through the node_id_maps
-    ConfigNew1 = rabbit_clusterer_utils:merge_node_id_maps(ConfigNew, ConfigOld),
+    %% Just to be safe, merge through the configs
+    ConfigNew1 = rabbit_clusterer_utils:merge_configs(ConfigNew, ConfigOld),
     %% If the config has changed then we must now be joining a new
     %% config
     begin_transition(rabbit_clusterer_join, ConfigNew1, State);

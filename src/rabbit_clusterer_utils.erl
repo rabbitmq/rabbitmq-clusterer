@@ -2,36 +2,34 @@
 
 -include("rabbit_clusterer.hrl").
 
--export([default_config/1,
+-export([default_config/0,
          proplist_config_to_record/1,
          record_config_to_proplist/1,
          load_last_seen_cluster_state/0,
          compare_configs/2,
-         ensure_node_id/0,
-         wipe_mnesia/1,
-         merge_node_id_maps/2,
+         wipe_mnesia/0,
+         merge_configs/2,
          add_node_id/3,
          eliminate_mnesia_dependencies/0,
          configure_cluster/1]).
 
-default_config(NodeID) ->
+default_config() ->
     proplist_config_to_record(
       [{nodes, [{node(), disc}]},
        {version, 0},
-       {minor_version, 0},
        {gospel, {node, node()}},
-       {shutdown_timeout, infinity},
-       {map_id_node, orddict:from_list([{NodeID, node()}])},
-       {map_node_id, orddict:from_list([{node(), NodeID}])}
+       {shutdown_timeout, infinity}
       ]).
 
 required_keys() ->
     [nodes, version, gospel, shutdown_timeout].
 
 optional_keys() ->
+    NodeID = create_node_id(),
     [{minor_version, 0},
-     {map_node_id, orddict:new()},
-     {map_id_node, orddict:new()}].
+     {map_node_id, orddict:from_list([{node(), NodeID}])},
+     {map_id_node, orddict:from_list([{NodeID, node()}])},
+     {node_id, NodeID}].
 
 %% Generally we're somewhat brutal in the validation currently - we
 %% just blow up whenever we encounter something that's not right. This
@@ -55,7 +53,7 @@ proplist_config_to_record(Proplist) when is_list(Proplist) ->
         tidy_node_id_maps(Config1 #config { nodes = Nodes1 }),
     case Gospel of
         reset        -> Config2;
-        {node, Node} -> true = proplists:is_defined(Node, Nodes1), %% ASSERTION
+        {node, Node} -> disc = proplists:get_value(Node, Nodes1), %% ASSERTION
                         Config2
     end.
 
@@ -78,14 +76,22 @@ normalise_nodes(Nodes) when is_list(Nodes) ->
 %% Sod it - we just regenerate map_id_node rather than trying to
 %% tidy. Easy to ensure correctness.
 tidy_node_id_maps(Config = #config { nodes = Nodes,
-                             map_node_id = NodeToID }) ->
+                                     node_id = NodeID,
+                                     map_node_id = NodeToID }) ->
     NodeNames = [N || {N, _} <- Nodes],
     NodesToRemove = orddict:fetch_keys(NodeToID) -- NodeNames,
     NodeToID1 = lists:foldr(fun orddict:erase/2, NodeToID, NodesToRemove),
+    %% There's a possibility that we need to add in the mapping for
+    %% the local node (consider that a previous config didn't include
+    %% ourself, but a new one does).
+    NodeToID2 = case proplists:is_defined(node(), Nodes) of
+                    true  -> orddict:store(node(), NodeID, NodeToID1);
+                    false -> NodeToID1
+                end,
     IDToNode = orddict:fold(fun (Node, ID, IDToNodeN) ->
                                     orddict:store(ID, Node, IDToNodeN)
-                            end, orddict:new(), NodeToID1),
-    Config #config { map_node_id = NodeToID1, map_id_node = IDToNode }.
+                            end, orddict:new(), NodeToID2),
+    Config #config { map_node_id = NodeToID2, map_id_node = IDToNode }.
 
 %% We also rely on the rebuilding in the above func in here. High
 %% coupling, but the funcs are side by side and it keeps the code
@@ -95,8 +101,12 @@ merge_node_id_maps(ConfigDest = #config { map_node_id = NodeToIDDest },
     NodeToIDDest1 = orddict:merge(
                       fun (_Node, IDDest, _IDSrc) -> IDDest end,
                       NodeToIDDest, NodeToIDSrc),
-    tidy_node_id_maps(ConfigDest #config { map_node_id = NodeToIDDest1 });
-merge_node_id_maps(Config, undefined) ->
+    tidy_node_id_maps(ConfigDest #config { map_node_id = NodeToIDDest1 }).
+
+merge_configs(ConfigDest, ConfigSrc = #config { node_id = NodeID }) ->
+    ConfigDest1 = merge_node_id_maps(ConfigDest, ConfigSrc),
+    ConfigDest1 #config { node_id = NodeID };
+merge_configs(Config, undefined) ->
     Config.
 %% We deliberately don't have either of the other cases.
 
@@ -121,8 +131,9 @@ record_config_to_proplist(Config = #config {}) ->
           end, {2, []}, Fields),
     Proplist.
 
-%% We very deliberately completely ignore the map_* fields here. They
-%% are not semantically important from the pov of config equivalence.
+%% We very deliberately completely ignore the map_* fields here or the
+%% node_id. They are not semantically important from the POV of config
+%% equivalence.
 compare_configs(
   #config { version = V, minor_version = MV, gospel = GA, shutdown_timeout = STA, nodes = NA },
   #config { version = V, minor_version = MV, gospel = GB, shutdown_timeout = STB, nodes = NB }) ->
@@ -152,35 +163,16 @@ load_last_seen_cluster_state() ->
 %% Node ID and mnesia
 %%----------------------------------------------------------------------------
 
-node_id_file_path() ->
-    rabbit_mnesia:dir() ++ "-cluster.node_id".
-
-ensure_node_id() ->
-    case rabbit_file:read_term_file(node_id_file_path()) of
-        {ok, [NodeId]}    -> {ok, NodeId};
-        {error, enoent}   -> create_node_id();
-        {error, _E} = Err -> Err
-    end.
-
 create_node_id() ->
-    %% We can't use rabbit_guid here because it hasn't been started at
-    %% this stage. In reality, this isn't a massive problem: the fact
-    %% we need to create a node_id implies that we're a fresh node, so
-    %% the guid serial will be 0 anyway.
-    NodeId = erlang:md5(term_to_binary({node(), make_ref()})),
-    ok = write_node_id(NodeId),
-    {ok, NodeId}.
+    %% We can't use rabbit_guid here because it may not have been
+    %% started at this stage. In reality, this isn't a massive
+    %% problem: the fact we need to create a node_id implies that
+    %% we're a fresh node, so the guid serial will be 0 anyway.
+    erlang:md5(term_to_binary({node(), make_ref()})).
 
-write_node_id(NodeID) ->
-    case rabbit_file:write_term_file(node_id_file_path(), [NodeID]) of
-        ok                -> ok;
-        {error, _E} = Err -> Err
-    end.
-
-wipe_mnesia(NodeID) ->
+wipe_mnesia() ->
     application:stop(mnesia),
     ok = rabbit_mnesia:force_reset(),
-    ok = write_node_id(NodeID),
     application:start(mnesia),
     ok.
 
