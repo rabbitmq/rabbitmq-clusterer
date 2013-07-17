@@ -189,5 +189,6 @@ update_remote_nodes(Nodes, State = #state { config = Config, comms = Comms }) ->
     %% Assumption here is Nodes does not contain node(). We
     %% deliberately do this cast out of Comms to preserve ordering of
     %% messages.
-    ok = rabbit_clusterer_comms:multi_cast(Nodes, {new_config, Config}, Comms),
+    Msg = rabbit_clusterer_coordinator:template_new_config(Config),
+    ok = rabbit_clusterer_comms:multi_cast(Nodes, Msg, Comms),
     delayed_request_status(State).

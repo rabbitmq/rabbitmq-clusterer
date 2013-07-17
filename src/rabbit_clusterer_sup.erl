@@ -12,6 +12,9 @@ init([]) ->
           [{rabbit_clusterer_comms_sup,
             {rabbit_clusterer_comms_sup, start_link, []},
             intrinsic, infinity, supervisor, [rabbit_clusterer_comms_sup]},
+           {rabbit_clusterer_monitor_sup,
+            {rabbit_clusterer_monitor_sup, start_link, []},
+            intrinsic, infinity, supervisor, [rabbit_clusterer_monitor_sup]},
            {rabbit_clusterer_coordinator,
             {rabbit_clusterer_coordinator, start_link, []},
             intrinsic, 16#ffffffff, worker, [rabbit_clusterer_coordinator]}]}}.
