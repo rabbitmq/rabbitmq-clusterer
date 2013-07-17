@@ -12,7 +12,7 @@ init(Config = #config { nodes = Nodes }, Comms) ->
     case proplists:get_value(Node, Nodes) of
         undefined ->
             %% Oh. We're not in there...
-            shutdown;
+            {shutdown, Config};
         disc when length(Nodes) =:= 1 ->
             %% Simple: we're continuing to cluster with ourself and
             %% we're disk. Don't do a reset. We're done.
@@ -37,5 +37,7 @@ init(Config = #config { nodes = Nodes }, Comms) ->
             end
     end.
 
-event(Event, Config) ->
-    {continue, Config}.
+event({request_config, Node, NodeID}, State = #state { config = Config }) ->
+    {_NodeIDChanged, Config1} =
+        rabbit_clusterer_utils:add_node_id(Node, NodeID, Config),
+    {continue, Config1, State #state { config = Config1 }}.

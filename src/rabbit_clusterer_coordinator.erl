@@ -55,24 +55,18 @@ handle_call({request_status, _Node, _NodeID}, _From,
     %% cluster configs. We need to ignore them. They'll either wait
     %% for us, or they'll start up and bring us in later on anyway.
     {reply, preboot, State};
-handle_call({request_status, Node, NodeID}, From,
-            State = #state { config             = Config,
-                             transitioner_state = TState,
-                             status             = Status }) ->
-    {NodeIDChanged, Config1} =
+handle_call({request_status, Node, NodeID}, _From,
+            State = #state { transitioner_state = TState,
+                             status    = Status = {transitioner, TModule} }) ->
+    {Config, State1} =
+        process_transitioner_response(
+          TModule:event({request_config, Node, NodeID}, TState), State),
+    {reply, {Config, Status}, State1};
+handle_call({request_status, Node, NodeID}, _From,
+            State = #state { config = Config, status = Status }) ->
+    {_NodeIDChanged, Config1} =
         rabbit_clusterer_utils:add_node_id(Node, NodeID, Config),
-    gen_server:reply(From, {Config1, Status}),
-    State1 = State #state { config = Config1 },
-    State2 = case Status of
-                 pending_shutdown ->
-                     reset_shutdown(State1);
-                 {transitioner, TModule} when NodeIDChanged ->
-                     process_transitioner_response(
-                       TModule:event({node_reset, Node}, TState), State1);
-                 _ ->
-                     State1
-             end,
-    {noreply, State2};
+    {reply, {Config1, Status}, reset_shutdown(State #state { config = Config1 })};
 handle_call(Msg, From, State) ->
     {stop, {unhandled_call, Msg, From}, State}.
 
@@ -91,10 +85,29 @@ handle_cast({comms, Comms, Result},
 handle_cast({new_config, _ConfigNew}, State = #state { status = preboot }) ->
     %% ignore it, we'll recover later
     {noreply, State};
-handle_cast({new_config, ConfigNew}, State = #state { config = ConfigOld }) ->
+handle_cast({new_config, ConfigNew}, State = #state { status = Status,
+                                                      config = ConfigOld })
+  when Status =:= booting orelse Status =:= ready ->
     ConfigNew1 = rabbit_clusterer_utils:merge_configs(ConfigNew, ConfigOld),
-    %% TODO: we may well need to reboot rabbit here
-    {noreply, begin_transition(rabbit_clusterer_join, ConfigNew1, State)};
+    case rabbit_clusterer_utils:detect_melisma(ConfigNew1, ConfigOld) of
+        true ->
+            %% It's a "fully compatible" change. We will need to
+            %% update the nodes we're monitoring, and we might
+            %% actually need to shutdown, but basically, very minor
+            %% changes to us - we shouldn't need to restart rabbit.
+            %% TODO: the above
+            {noreply, State #state { config = ConfigNew1 }};
+        false ->
+            %% Ahh, we will need to reboot here. TODO
+            io:format("Reboot required...~n"),
+            {stop, normal, State}
+    end;
+handle_cast({new_config, ConfigNew}, State) ->
+    %% status =:= pending_shutdown orelse status =:= {transitioner,_}
+    %% In either case we consider the transition from our last active
+    %% config, *not* the config we're currently trying to transition
+    %% to (if {transitioner,_}).
+    {noreply, begin_transition(ConfigNew, State)};
 handle_cast(ready_to_cluster, State = #state { status = booting }) ->
     {noreply, set_status(ready, State)};
 handle_cast(ready_to_cluster, State) ->
@@ -138,29 +151,29 @@ code_change(_OldVsn, State, _Extra) ->
 %%----------------------------------------------------------------------------
 
 begin_clustering(State) ->
-    {TModule, Config} =
+    {NewConfig, OldConfig} =
         case choose_config() of
             {undefined, undefined} ->
                 %% No config at all, 'join' the default.
-                {rabbit_clusterer_join, rabbit_clusterer_utils:default_config()};
-            {NewConfig, undefined} ->
-                {rabbit_clusterer_join, NewConfig};
-            {undefined, OldConfig} ->
-                {rabbit_clusterer_rejoin, OldConfig};
-            {NewConfig, OldConfig} ->
-                case rabbit_clusterer_utils:compare_configs(NewConfig, OldConfig) of
+                {rabbit_clusterer_utils:default_config(), undefined};
+            {NewConfig1, undefined} ->
+                {NewConfig1, undefined};
+            {undefined, OldConfig1} ->
+                {OldConfig1, OldConfig1};
+            {NewConfig1, OldConfig1} ->
+                case rabbit_clusterer_utils:compare_configs(NewConfig1, OldConfig1) of
                     gt ->
                         %% New cluster config has been applied
-                        NewConfig1 =
-                            rabbit_clusterer_utils:merge_configs(NewConfig, OldConfig),
-                        {rabbit_clusterer_join, NewConfig1};
+                        NewConfig2 =
+                            rabbit_clusterer_utils:merge_configs(NewConfig1, OldConfig1),
+                        {NewConfig2, OldConfig1};
                     _ ->
                         %% All other cases, we ignore the user-provided config.
                         %% TODO: we might want to log this decision.
-                        {rabbit_clusterer_rejoin, OldConfig}
+                        {OldConfig1, OldConfig1}
                 end
         end,
-    begin_transition(TModule, Config, State).
+    begin_transition(NewConfig, State #state { config = OldConfig }).
 
 internal_config_path() ->
     rabbit_mnesia:dir() ++ "-cluster.config".
@@ -221,12 +234,15 @@ write_internal_config(Config) ->
 %% pending_shutdown  -> shutdown
 %% pending_shutdown  -> a transitioner module
 %% booting           -> ready
+%% ready             -> a transitioner module
 
 set_status(NewStatus, State = #state { status = {transitioner, _} })
   when ?IS_TRANSITIONER(NewStatus) ->
     State #state { status = NewStatus };
 set_status(NewStatus, State = #state { status = OldStatus })
-  when (OldStatus =:= preboot orelse OldStatus =:= pending_shutdown) andalso
+  when (OldStatus =:= preboot orelse
+        OldStatus =:= pending_shutdown orelse
+        OldStatus =:= ready) andalso
        ?IS_TRANSITIONER(NewStatus) ->
     ok = rabbit_clusterer_utils:ensure_start_mnesia(),
     State #state { status = {transitioner, NewStatus} };
@@ -255,21 +271,28 @@ set_status(shutdown, State = #state { status       = pending_shutdown,
 %% Changing cluster config
 %%----------------------------------------------------------------------------
 
-begin_transition(TModule, Config, State) ->
+select_transition_module(NewConfig, OldConfig) ->
+    case rabbit_clusterer_utils:detect_melisma(NewConfig, OldConfig) of
+        true  -> rabbit_clusterer_rejoin;
+        false -> rabbit_clusterer_join
+    end.
+
+begin_transition(NewConfig, State = #state { config = OldConfig }) ->
+    TModule = select_transition_module(NewConfig, OldConfig),
     {ok, Comms, State1} = fresh_comms(State),
     process_transitioner_response(
-      TModule:init(Config, Comms),
-      set_status(TModule, State1 #state { config = Config })).
-
+      TModule:init(NewConfig, Comms), set_status(TModule, State1)).
 
 process_transitioner_response({continue, TState}, State) ->
     State #state { transitioner_state = TState };
-process_transitioner_response(shutdown, State = #state { config = Config }) ->
+process_transitioner_response({continue, Reply, TState}, State) ->
+    {Reply, State #state { transitioner_state = TState }};
+process_transitioner_response({shutdown, Config}, State) ->
     %% If we've had a config applied to us that tells us to shutdown,
     %% we must record that config, otherwise we can later be restarted
     %% and try to start up with an outdated config.
     ok = write_internal_config(Config),
-    {ok, State1} = stop_comms(State),
+    {ok, State1} = stop_comms(State #state { config = Config }),
     reset_shutdown(set_status(pending_shutdown, State1));
 process_transitioner_response({success, ConfigNew},
                               State = #state { config = ConfigOld }) ->
@@ -285,7 +308,7 @@ process_transitioner_response({config_changed, ConfigNew},
     ConfigNew1 = rabbit_clusterer_utils:merge_configs(ConfigNew, ConfigOld),
     %% If the config has changed then we must now be joining a new
     %% config
-    begin_transition(rabbit_clusterer_join, ConfigNew1, State);
+    begin_transition(ConfigNew1, State);
 process_transitioner_response({sleep, Delay, Event, TState}, State) ->
     erlang:send_after(Delay, self(), {transitioner_delay, Event}),
     State #state { transitioner_state = TState }.

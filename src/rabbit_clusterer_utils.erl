@@ -13,7 +13,8 @@
          eliminate_mnesia_dependencies/0,
          configure_cluster/1,
          stop_mnesia/0,
-         ensure_start_mnesia/0]).
+         ensure_start_mnesia/0,
+         detect_melisma/2]).
 
 default_config() ->
     proplist_config_to_record(
@@ -150,6 +151,21 @@ compare_configs(#config { version = VA, minor_version = MVA },
         true  -> gt;
         false -> lt
     end.
+
+%% The point of this if to detect whether we really do need to join or
+%% rejoin even when the cluster config has changed. Essentially, if
+%% the gospel node in the new config is someone we were already
+%% clustered with in the old config then we shouldn't do a wipe: we
+%% are rejoining rather than joining.
+%% Yes, melisma is a surprising choice. But 'compatible' or 'upgrade'
+%% isn't right either. I like the idea of a cluster continuing to
+%% slide from one config to another, hence melisma.
+detect_melisma(#config { gospel = reset }, _OldConfig) ->
+    false;
+detect_melisma(#config { gospel = {node, Node} }, #config { nodes = Nodes }) ->
+    [] =/= [N || {N, _} <- Nodes, N =:= Node];
+detect_melisma(#config {}, undefined) ->
+    false.
 
 %%----------------------------------------------------------------------------
 %% Inspecting known-at-shutdown cluster state

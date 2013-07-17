@@ -12,7 +12,7 @@ init(Config = #config { nodes = Nodes,
     case proplists:get_value(node(), Nodes) of
         undefined ->
             %% Oh. We're not in there...
-            shutdown;
+            {shutdown, Config};
         disc when length(Nodes) =:= 1 ->
             ok = case Gospel of
                      reset ->
@@ -165,9 +165,10 @@ event({delayed_request_status, Ref},
 event({delayed_request_status, _Ref}, State) ->
     %% ignore it
     {configure, State};
-event({node_reset, _Node}, State) ->
-    %% I don't think we need to do anything here.
-    {continue, State}.
+event({request_config, Node, NodeID}, State = #state { config = Config }) ->
+    {_NodeIDChanged, Config1} =
+        rabbit_clusterer_utils:add_node_id(Node, NodeID, Config),
+    {continue, Config1, State #state { config = Config1 }}.
 
 
 request_status(State = #state { comms  = Comms,
@@ -189,4 +190,4 @@ update_remote_nodes(Nodes, State = #state { config = Config, comms = Comms }) ->
     %% deliberately do this cast out of Comms to preserve ordering of
     %% messages.
     ok = rabbit_clusterer_comms:multi_cast(Nodes, {new_config, Config}, Comms),
-    request_status(State).
+    delayed_request_status(State).
