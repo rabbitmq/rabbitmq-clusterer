@@ -14,7 +14,8 @@
          configure_cluster/1,
          stop_mnesia/0,
          ensure_start_mnesia/0,
-         detect_melisma/2]).
+         detect_melisma/2
+        ]).
 
 default_config() ->
     proplist_config_to_record(
@@ -162,10 +163,20 @@ compare_configs(#config { version = VA, minor_version = MVA },
 %% slide from one config to another, hence melisma.
 detect_melisma(#config { gospel = reset }, _OldConfig) ->
     false;
-detect_melisma(#config { gospel = {node, Node} }, #config { nodes = Nodes }) ->
-    [] =/= [N || {N, _} <- Nodes, N =:= Node];
 detect_melisma(#config {}, undefined) ->
-    false.
+    false;
+detect_melisma(#config { gospel      = {node, Node},
+                         map_id_node = MapNodeIDNew },
+               #config { nodes       = Nodes,
+                         map_id_node = MapNodeIDOld }) ->
+    case [N || {N, _} <- Nodes, N =:= Node] of
+        []    -> false;
+        [_|_] -> case {dict:find(Node, MapNodeIDNew),
+                       dict:find(Node, MapNodeIDOld)} of
+                     {{ok, Id}, {ok, Id}} -> true;
+                     _                    -> false
+                 end
+    end.
 
 %%----------------------------------------------------------------------------
 %% Inspecting known-at-shutdown cluster state

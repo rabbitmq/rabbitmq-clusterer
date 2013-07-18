@@ -170,7 +170,6 @@ event({request_config, Node, NodeID}, State = #state { config = Config }) ->
         rabbit_clusterer_utils:add_node_id(Node, NodeID, Config),
     {continue, Config1, State #state { config = Config1 }}.
 
-
 request_status(State = #state { comms  = Comms,
                                 config = #config { nodes   = Nodes,
                                                    node_id = NodeID } }) ->
