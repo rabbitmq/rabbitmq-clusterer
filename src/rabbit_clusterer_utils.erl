@@ -13,8 +13,10 @@
          eliminate_mnesia_dependencies/0,
          configure_cluster/1,
          stop_mnesia/0,
+         stop_rabbit/0,
          ensure_start_mnesia/0,
-         detect_melisma/2
+         detect_melisma/2,
+         node_in_config/1
         ]).
 
 default_config() ->
@@ -171,12 +173,15 @@ detect_melisma(#config { gospel      = {node, Node},
                          map_id_node = MapNodeIDOld }) ->
     case [N || {N, _} <- Nodes, N =:= Node] of
         []    -> false;
-        [_|_] -> case {dict:find(Node, MapNodeIDNew),
-                       dict:find(Node, MapNodeIDOld)} of
+        [_|_] -> case {orddict:find(Node, MapNodeIDNew),
+                       orddict:find(Node, MapNodeIDOld)} of
                      {{ok, Id}, {ok, Id}} -> true;
                      _                    -> false
                  end
     end.
+
+node_in_config(#config { nodes = Nodes }) ->
+    [] =/= [N || {N, _} <- Nodes, N =:= node()].
 
 %%----------------------------------------------------------------------------
 %% Inspecting known-at-shutdown cluster state
@@ -203,8 +208,7 @@ create_node_id() ->
 wipe_mnesia() ->
     ok = stop_mnesia(),
     ok = rabbit_mnesia:force_reset(),
-    ok = ensure_start_mnesia(),
-    ok.
+    ok = ensure_start_mnesia().
 
 stop_mnesia() ->
     case application:stop(mnesia) of
@@ -214,7 +218,7 @@ stop_mnesia() ->
     end.
 
 ensure_start_mnesia() ->
-    application:ensure_started(mnesia).
+    ok = application:ensure_started(mnesia).
 
 eliminate_mnesia_dependencies() ->
     %% rabbit_table:force_load() does not error if
@@ -222,8 +226,7 @@ eliminate_mnesia_dependencies() ->
     %% even in clean state - i.e. one where neither the schema nor any
     %% tables actually exist.
     ok = rabbit_table:force_load(),
-    ok = rabbit_node_monitor:reset_cluster_status(),
-    ok.
+    ok = rabbit_node_monitor:reset_cluster_status().
 
 configure_cluster(Nodes) ->
     case application:load(rabbit) of
@@ -232,5 +235,11 @@ configure_cluster(Nodes) ->
     end,
     NodeNames = [N || {N, _} <- Nodes],
     Mode = proplists:get_value(node(), Nodes),
-    ok = application:set_env(rabbit, cluster_nodes, {NodeNames, Mode}),
-    ok.
+    ok = application:set_env(rabbit, cluster_nodes, {NodeNames, Mode}).
+
+stop_rabbit() ->
+    case application:stop(rabbit) of
+        ok                             -> ok;
+        {error, {not_started, rabbit}} -> ok;
+        Other                          -> Other
+    end.
