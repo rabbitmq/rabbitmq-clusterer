@@ -4,12 +4,12 @@
 
 -export([default_config/0,
          proplist_config_to_record/1,
-         record_config_to_proplist/1,
+         record_config_to_proplist/2,
          load_last_seen_cluster_state/0,
          compare_configs/2,
          wipe_mnesia/0,
-         merge_configs/2,
-         add_node_id/3,
+         merge_configs/3,
+         add_node_id/4,
          eliminate_mnesia_dependencies/0,
          configure_cluster/1,
          stop_mnesia/0,
@@ -56,12 +56,13 @@ proplist_config_to_record(Proplist) when is_list(Proplist) ->
                     end, {2, Config}, Fields),
     Nodes1 = normalise_nodes(Nodes),
     true = [] =/= [N || {N, disc} <- Nodes1], %% ASSERTION
-    Config2 = #config { gospel = Gospel } =
-        tidy_node_id_maps(Config1 #config { nodes = Nodes1 }),
+    NodeID = proplists:get_value(node_id, Proplist1),
+    true = NodeID =/= undefined, %% ASSERTION
+    Config2 = #config { gospel = Gospel } = Config1 #config { nodes = Nodes1 },
     case Gospel of
-        reset        -> Config2;
+        reset        -> {NodeID, Config2};
         {node, Node} -> disc = proplists:get_value(Node, Nodes1), %% ASSERTION
-                        Config2
+                        {NodeID, Config2}
     end.
 
 ensure_entries(Entries, Proplist) ->
@@ -82,10 +83,12 @@ normalise_nodes(Nodes) when is_list(Nodes) ->
 
 %% Sod it - we just regenerate map_id_node rather than trying to
 %% tidy. Easy to ensure correctness.
-tidy_node_id_maps(Config = #config { nodes = Nodes,
-                                     node_id = NodeID,
-                                     map_node_id = NodeToID }) ->
-    NodeNames = [N || {N, _} <- Nodes],
+tidy_node_id_maps(NodeID, Config = #config { nodes = Nodes,
+                                             map_node_id = NodeToID }) ->
+    %% We always remove ourself from the maps to take into account our
+    %% own node_id has changed (and then add ourself back in).
+    MyNode = node(),
+    NodeNames = [N || {N, _} <- Nodes, N =/= MyNode],
     NodesToRemove = orddict:fetch_keys(NodeToID) -- NodeNames,
     NodeToID1 = lists:foldr(fun orddict:erase/2, NodeToID, NodesToRemove),
     %% There's a possibility that we need to add in the mapping for
@@ -103,40 +106,43 @@ tidy_node_id_maps(Config = #config { nodes = Nodes,
 %% We also rely on the rebuilding in the above func in here. High
 %% coupling, but the funcs are side by side and it keeps the code
 %% simpler.
-merge_node_id_maps(ConfigDest = #config { map_node_id = NodeToIDDest },
-           _ConfigSrc = #config { map_node_id = NodeToIDSrc }) ->
-    NodeToIDDest1 = orddict:merge(
-                      fun (_Node, IDDest, _IDSrc) -> IDDest end,
-                      NodeToIDDest, NodeToIDSrc),
-    tidy_node_id_maps(ConfigDest #config { map_node_id = NodeToIDDest1 }).
+merge_node_id_maps(NodeID,
+                   ConfigDest = #config { map_node_id = NodeToIDDest },
+                   _ConfigSrc = #config { map_node_id = NodeToIDSrc }) ->
+    NodeToIDDest1 = orddict:merge(fun (_Node, IDDest, _IDSrc) -> IDDest end,
+                                  NodeToIDDest, NodeToIDSrc),
+    tidy_node_id_maps(NodeID, ConfigDest #config { map_node_id = NodeToIDDest1 }).
 
-merge_configs(ConfigDest, ConfigSrc = #config { node_id = NodeID }) ->
-    ConfigDest1 = merge_node_id_maps(ConfigDest, ConfigSrc),
-    ConfigDest1 #config { node_id = NodeID };
-merge_configs(Config, undefined) ->
+merge_configs(NodeID, ConfigDest, ConfigSrc = #config {}) ->
+    merge_node_id_maps(NodeID, ConfigDest, ConfigSrc);
+merge_configs(_NodeID, Config, undefined) ->
     Config.
 %% We deliberately don't have either of the other cases.
 
-add_node_id(Node, NodeID, Config = #config { map_node_id = NodeToID,
-                                             map_id_node = IDToNode }) ->
-    Changed = case orddict:find(Node, NodeToID) of
-                  error         -> false;
-                  {ok,  NodeID} -> false;
-                  {ok, _NodeID} -> true
-              end,
-    {Changed,
-     tidy_node_id_maps(
-       Config #config { map_node_id = orddict:store(Node, NodeID, NodeToID),
-                        map_id_node = orddict:store(NodeID, Node, IDToNode) })}.
+add_node_id(NewNode, NewNodeID, NodeID,
+            Config = #config { map_node_id = NodeToID,
+                               map_id_node = IDToNode }) ->
+    {Changed, IDToNode1} =
+        case orddict:find(NewNode, NodeToID) of
+            error            -> {false, IDToNode};
+            {ok, NewNodeID}  -> {false, IDToNode};
+            {ok, NewNodeID1} -> {true,  orddict:erase(NewNodeID1, IDToNode)}
+        end,
+    {Changed, tidy_node_id_maps(
+                NodeID, Config #config {
+                          map_node_id =
+                              orddict:store(NewNode, NewNodeID, NodeToID),
+                          map_id_node =
+                              orddict:store(NewNodeID, NewNode, IDToNode1) })}.
 
-record_config_to_proplist(Config = #config {}) ->
+record_config_to_proplist(NodeID, Config = #config {}) ->
     Fields = record_info(fields, config),
     {_Pos, Proplist} =
         lists:foldl(
           fun (FieldName, {Pos, ProplistN}) ->
                   {Pos + 1, [{FieldName, element(Pos, Config)} | ProplistN]}
           end, {2, []}, Fields),
-    Proplist.
+    [{node_id, NodeID} | Proplist].
 
 %% We very deliberately completely ignore the map_* fields here or the
 %% node_id. They are not semantically important from the POV of config
@@ -168,9 +174,9 @@ detect_melisma(#config { gospel = reset }, _OldConfig) ->
 detect_melisma(#config {}, undefined) ->
     false;
 detect_melisma(#config { gospel      = {node, Node},
-                         map_id_node = MapNodeIDNew },
+                         map_node_id = MapNodeIDNew },
                #config { nodes       = Nodes,
-                         map_id_node = MapNodeIDOld }) ->
+                         map_node_id = MapNodeIDOld }) ->
     case [N || {N, _} <- Nodes, N =:= Node] of
         []    -> false;
         [_|_] -> case {orddict:find(Node, MapNodeIDNew),
@@ -233,9 +239,14 @@ configure_cluster(Nodes) ->
         ok                                -> ok;
         {error, {already_loaded, rabbit}} -> ok
     end,
-    NodeNames = [N || {N, _} <- Nodes],
-    Mode = proplists:get_value(node(), Nodes),
-    ok = application:set_env(rabbit, cluster_nodes, {NodeNames, Mode}).
+    case Nodes of
+        undefined ->
+            ok = application:set_env(rabbit, cluster_nodes, {[], disc});
+        [_|_] ->
+            NodeNames = [N || {N, _} <- Nodes],
+            Mode = proplists:get_value(node(), Nodes),
+            ok = application:set_env(rabbit, cluster_nodes, {NodeNames, Mode})
+    end.
 
 stop_rabbit() ->
     case application:stop(rabbit) of

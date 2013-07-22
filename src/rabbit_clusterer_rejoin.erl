@@ -1,23 +1,20 @@
 -module(rabbit_clusterer_rejoin).
 
--export([init/2, event/2]).
+-export([init/3, event/2]).
 
--record(state, { config, comms }).
+-record(state, { node_id, config, comms }).
 
 -include("rabbit_clusterer.hrl").
 
-init(Config = #config { nodes = Nodes }, Comms) ->
+init(Config = #config { nodes = Nodes }, NodeID, Comms) ->
     Node = node(),
     %% Check we're actually involved in this
     case proplists:get_value(Node, Nodes) of
-        undefined ->
-            %% Oh. We're not in there...
-            {shutdown, Config};
         disc when length(Nodes) =:= 1 ->
             %% Simple: we're continuing to cluster with ourself and
             %% we're disk. Don't do a reset. We're done.
             {success, Config};
-        Mode ->
+        Mode when Mode =/= undefined ->
             %% We shouldn't have been able to get into a situation
             %% where we're in a RAM only cluster.
             DiskNodes = [ N || {N, disc} <- Nodes ],
@@ -33,11 +30,13 @@ init(Config = #config { nodes = Nodes }, Comms) ->
                     SurvivingNodes = NodesRunningAtShutdown -- [Node],
                     %%{ok, Ref} = Caster(SurvivingNodes, {rejoin, Config}),
                     {continue, #state { config  = Config,
-                                        comms   = Comms }}
+                                        comms   = Comms,
+                                        node_id = NodeID }}
             end
     end.
 
-event({request_config, Node, NodeID}, State = #state { config = Config }) ->
+event({request_config, NewNode, NewNodeID},
+      State = #state { node_id = NodeID, config  = Config }) ->
     {_NodeIDChanged, Config1} =
-        rabbit_clusterer_utils:add_node_id(Node, NodeID, Config),
+        rabbit_clusterer_utils:add_node_id(NewNode, NewNodeID, NodeID, Config),
     {continue, Config1, State #state { config = Config1 }}.

@@ -1,18 +1,14 @@
 -module(rabbit_clusterer_join).
 
--export([init/2, event/2]).
+-export([init/3, event/2]).
 
--record(state, { config, comms, state }).
+-record(state, { node_id, config, comms, state }).
 
 -include("rabbit_clusterer.hrl").
 
 init(Config = #config { nodes = Nodes,
-                        gospel = Gospel }, Comms) ->
-    %% 1. Check we're actually involved in this
+                        gospel = Gospel }, NodeID, Comms) ->
     case proplists:get_value(node(), Nodes) of
-        undefined ->
-            %% Oh. We're not in there...
-            {shutdown, Config};
         disc when length(Nodes) =:= 1 ->
             ok = case Gospel of
                      reset ->
@@ -25,26 +21,29 @@ init(Config = #config { nodes = Nodes,
             {success, Config};
         ram when length(Nodes) =:= 1 ->
             {error, ram_only_cluster_config};
-        _ ->
-            request_status(#state { config = Config,
-                                    comms  = Comms })
+        Mode when Mode =/= undefined ->
+            request_status(#state { config  = Config,
+                                    comms   = Comms,
+                                    node_id = NodeID })
     end.
 
 event({comms, {[], _BadNodes}}, State = #state { state = awaiting_status }) ->
     delayed_request_status(State);
-event({comms, {Replies, BadNodes}}, State = #state { state  = awaiting_status,
-                                                     config = Config }) ->
+event({comms, {Replies, BadNodes}}, State = #state { state   = awaiting_status,
+                                                     config  = Config,
+                                                     node_id = NodeID }) ->
     {Youngest, OlderThanUs, StatusDict} =
         lists:foldr(
           fun ({Node, preboot}, {YoungestN, OlderThanUsN, StatusDictN}) ->
                   {YoungestN, OlderThanUsN, dict:append(preboot, Node, StatusDictN)};
               ({Node, {ConfigN, StatusN}}, {YoungestN, OlderThanUsN, StatusDictN}) ->
                   {case rabbit_clusterer_utils:compare_configs(ConfigN, YoungestN) of
-                       gt -> rabbit_clusterer_utils:merge_configs(ConfigN, YoungestN);
                        invalid ->
                            %% TODO tidy this up - probably shouldn't be a throw.
                            throw("Configs with same version numbers but semantically different");
-                       _  -> YoungestN
+                       lt -> YoungestN;
+                       _  -> %% i.e. gt *or* eq - must merge if eq too!
+                             rabbit_clusterer_utils:merge_configs(NodeID, ConfigN, YoungestN)
                    end,
                    case rabbit_clusterer_utils:compare_configs(ConfigN, Config) of
                        lt -> [Node | OlderThanUsN];
@@ -145,7 +144,7 @@ event({comms, {Replies, BadNodes}}, State = #state { state  = awaiting_status,
                                              false -> rabbit_clusterer_utils:eliminate_mnesia_dependencies()
                                          end,
                                     ok = case node() of
-                                             Leader -> ok;
+                                             Leader -> rabbit_clusterer_utils:configure_cluster(undefined);
                                              _      -> rabbit_clusterer_utils:configure_cluster(Nodes)
                                          end,
                                     {success, Youngest};
@@ -165,14 +164,15 @@ event({delayed_request_status, Ref},
 event({delayed_request_status, _Ref}, State) ->
     %% ignore it
     {configure, State};
-event({request_config, Node, NodeID}, State = #state { config = Config }) ->
+event({request_config, NewNode, NewNodeID},
+      State = #state { config = Config, node_id = NodeID }) ->
     {_NodeIDChanged, Config1} =
-        rabbit_clusterer_utils:add_node_id(Node, NodeID, Config),
+        rabbit_clusterer_utils:add_node_id(NewNode, NewNodeID, NodeID, Config),
     {continue, Config1, State #state { config = Config1 }}.
 
-request_status(State = #state { comms  = Comms,
-                                config = #config { nodes   = Nodes,
-                                                   node_id = NodeID } }) ->
+request_status(State = #state { comms   = Comms,
+                                node_id = NodeID,
+                                config  = #config { nodes = Nodes } }) ->
     NodesNotUs = [ N || {N, _Mode} <- Nodes, N =/= node() ],
     ok = rabbit_clusterer_comms:multi_call(
            NodesNotUs, {request_status, node(), NodeID}, Comms),

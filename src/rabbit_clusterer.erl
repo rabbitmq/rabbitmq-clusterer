@@ -17,7 +17,7 @@
    {rabbit_clusterer_p2,
     [{description, "Declarative Clustering - part 2"},
      {mfa, {?MODULE, ready_to_cluster, []}},
-     {requires, external_infrastructure}]}).
+     {requires, networking}]}).
 
 -define(APP, rabbitmq_clusterer).
 
