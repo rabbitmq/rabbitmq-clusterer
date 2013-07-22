@@ -11,11 +11,11 @@
          terminate/2, code_change/3]).
 
 -define(SERVER, ?MODULE).
--define(IS_TRANSITIONER_MODULE(X),
-        (X =:= rabbit_clusterer_join orelse X =:= rabbit_clusterer_rejoin)).
+-define(JOIN  , rabbit_clusterer_join).
+-define(REJOIN, rabbit_clusterer_rejoin).
+-define(IS_TRANSITIONER_MODULE(X), (X =:= ?JOIN orelse X =:= ?REJOIN)).
 -define(IS_TRANSITIONER(X),
-        (X =:= {transitioner, rabbit_clusterer_join} orelse
-         X =:= {transitioner, rabbit_clusterer_rejoin})).
+        (X =:= {transitioner, ?JOIN} orelse X =:= {transitioner, ?REJOIN})).
 
 -record(state, { node_id,
                  status,
@@ -99,12 +99,14 @@ handle_call(await_coordination, From,
             {undefined, {NodeID1, OldConfig1}} ->
                 {NodeID1, OldConfig1, OldConfig1};
             {{NodeID1, NewConfig1}, {NodeID1, OldConfig1}} ->
-                case rabbit_clusterer_utils:compare_configs(NewConfig1, OldConfig1) of
+                case rabbit_clusterer_utils:compare_configs(NewConfig1,
+                                                            OldConfig1) of
                     gt ->
                         %% New cluster config has been applied
                         {NodeID1, NewConfig1, OldConfig1};
                     _ ->
-                        %% All other cases, we ignore the user-provided config.
+                        %% All other cases, we ignore the
+                        %% user-provided config.
                         %% TODO: we might want to log this decision.
                         {NodeID1, OldConfig1, OldConfig1}
                 end
@@ -123,19 +125,23 @@ handle_call({request_status, _Node, _NodeID}, _From,
     %% them. They'll either wait for us, or they'll start up and bring
     %% us in later on anyway.
     {reply, preboot, State};
-handle_call({request_status, NewNode, NewNodeID}, _From,
+handle_call({request_status, NewNode, NewNodeID}, From,
             State = #state { transitioner_state = TState,
                              status    = Status = {transitioner, TModule} }) ->
-    {Config, State1} =
-        process_transitioner_response(
-          TModule:event({request_config, NewNode, NewNodeID}, TState), State),
-    {reply, {Config, Status}, State1};
+    Fun = fun (Config) -> gen_server:reply(From, {Config, Status}), ok end,
+    {noreply,
+     process_transitioner_response(
+       TModule:event({request_config, NewNode, NewNodeID, Fun}, TState), State)
+    };
 handle_call({request_status, NewNode, NewNodeID}, _From,
-            State = #state { node_id = NodeID, config = Config, status = Status }) ->
+            State = #state { node_id = NodeID,
+                             config  = Config,
+                             status  = Status }) ->
     %% Status \in {pending_shutdown, booting, ready}
     {_NodeIDChanged, Config1} =
         rabbit_clusterer_utils:add_node_id(NewNode, NewNodeID, NodeID, Config),
-    {reply, {Config1, Status}, reset_shutdown(State #state { config = Config1 })};
+    State1 = reset_shutdown(State #state { config = Config1 }),
+    {reply, {Config1, Status}, State1};
 
 %% anything else kills us
 handle_call(Msg, From, State) ->
@@ -195,16 +201,10 @@ handle_cast({new_config, ConfigRemote, Node},
     end;
 
 handle_cast(ready_to_cluster, State = #state { status = booting }) ->
+    %% Note that we don't allow any transition to start whilst we're
+    %% booting so it should be safe to assert we can only receive
+    %% ready_to_cluster when in booting.
     {noreply, set_status(ready, State)};
-handle_cast(ready_to_cluster, State) ->
-    %% Complex race: we thought we were booting up and so status would
-    %% have been 'booting' at some point, but since then someone else
-    %% has provided a new config (and we decided not to reboot - TODO
-    %% - is this possible?). Consequenctly rabbit has now passed the
-    %% mnesia boot step and is continuing to boot up. Presumably we
-    %% actually just want to reboot in the future after rabbit has
-    %% finished (erroneously) booting...
-    {noreply, State};
 
 %% anything else kills us
 handle_cast(Msg, State) ->
@@ -218,7 +218,10 @@ handle_info({shutdown, Ref},
             State = #state { status = pending_shutdown,
                              transitioner_state = {shutdown, Ref} }) ->
     %% This is the timer coming back to us. We actually need to halt
-    %% the VM here.
+    %% the VM here (which set_status does). Sadly, if there is a boot
+    %% blocker, it'll see our process death (unavoidable: if the
+    %% supervision tree tears us down before rabbit then this'll
+    %% happen regardless) and spew an error to the console.
     {stop, normal, set_status(shutdown, State)};
 handle_info({shutdown, _Ref}, State) ->
     %% Something saved us in the meanwhilst!
@@ -236,7 +239,7 @@ handle_info({transitioner_delay, _Event}, State) ->
     {noreply, State};
 
 %% Monitoring stuff
-handle_info({'DOWN', MRef, process, {rabbit_clusterer_coordinator, Node}, _Info},
+handle_info({'DOWN', MRef, process, {?SERVER, Node}, _Info},
             State = #state { alive_mrefs = Alive, dead = Dead }) ->
     case lists:delete(MRef, Alive) of
         Alive  -> {noreply, State};
@@ -246,14 +249,14 @@ handle_info({'DOWN', MRef, process, {rabbit_clusterer_coordinator, Node}, _Info}
     end;
 handle_info(poke_the_dead, State = #state { dead        = Dead,
                                             alive_mrefs = Alive,
-                                            status      = Status,
-                                            config      = Config })
-  when Status =:= booting orelse Status =:= ready ->
-    %% When we're transitioning to something else we don't bother with
-    %% the poke as the transitioner will take care of updating nodes
-    %% we want to cluster with, and when the transitioner does success
-    %% we'll update everyone in the old config too.
-    MRefsNew = [monitor(process, {?MODULE, N}) || N <- Dead],
+                                            status      = ready,
+                                            config      = Config }) ->
+    %% When we're transitioning to something else (or even booting) we
+    %% don't bother with the poke as the transitioner will take care
+    %% of updating nodes we want to cluster with, and when the boot
+    %% finishes we'll update everyone in the old config and people who
+    %% have sent us new_config msgs too.
+    MRefsNew = [monitor(process, {?SERVER, N}) || N <- Dead],
     ok = send_new_config(Config, Dead),
     Alive1 = MRefsNew ++ Alive,
     {noreply, State #state { dead = [], alive_mrefs = Alive1,
@@ -329,14 +332,11 @@ set_status(booting, State = #state { status       = {transitioner, _},
     end,
     State #state { status = booting, boot_blocker = undefined };
 set_status(ready, State = #state { status = booting }) ->
-    {ok, State1} = update_monitoring(State),
-    State1 #state { status = ready };
-set_status(shutdown, State = #state { status       = pending_shutdown,
-                                      boot_blocker = Blocker }) ->
-    case Blocker of
-        undefined -> init:stop();
-        _         -> gen_server:reply(Blocker, shutdown)
-    end,
+    update_monitoring(State #state { status = ready });
+set_status(shutdown, State = #state { status = pending_shutdown }) ->
+    %% Regardless of the blocker, we just do the init:stop() as it's
+    %% by far the surest way to stop the VM.
+    init:stop(),
     State #state { status = shutdown, boot_blocker = undefined };
 set_status(preboot, State = #state { status       = pending_shutdown,
                                      boot_blocker = undefined }) ->
@@ -362,40 +362,43 @@ restart_rabbit() ->
 %% Cluster config loading and selection
 %%----------------------------------------------------------------------------
 
-internal_config_path() ->
-    rabbit_mnesia:dir() ++ "-cluster.config".
+%% We can't put the file within mnesia dir because that upsets the
+%% virgin detection in rabbit_mnesia!
+internal_config_path() -> rabbit_mnesia:dir() ++ "-cluster.config".
 
-external_config_path() ->
-    application:get_env(rabbit, cluster_config).
+external_config_path() -> application:get_env(rabbit, cluster_config).
 
 load_external_config() ->
     ExternalProplist =
         case external_config_path() of
-            undefined ->
-                undefined;
             {ok, ExternalProplist1 = [{_,_}|_]} ->
                 OldPath = proplists:get_value(old_path, ExternalProplist1),
                 ok = application:set_env(rabbit, cluster_config, OldPath),
                 proplists:delete(old_path, ExternalProplist1);
-            {ok, ExternalPath} ->
+            {ok, ExternalPath = [_|_]} ->
                 case rabbit_file:read_term_file(ExternalPath) of
                     {error, enoent}           -> undefined;
                     {ok, [ExternalProplist1]} -> ExternalProplist1
-                end
+                end;
+            undefined ->
+                undefined
         end,
     case ExternalProplist of
         undefined -> undefined;
-        _         -> rabbit_clusterer_utils:proplist_config_to_record(ExternalProplist)
+        _         -> rabbit_clusterer_utils:proplist_config_to_record(
+                       ExternalProplist)
     end.
 
 load_internal_config() ->
-    InternalProplist = case rabbit_file:read_term_file(internal_config_path()) of
-                           {error, enoent}          -> undefined;
-                           {ok, [InternalProplist1]} -> InternalProplist1
-                       end,
+    InternalProplist =
+        case rabbit_file:read_term_file(internal_config_path()) of
+            {error, enoent}                       -> undefined;
+            {ok, [InternalProplist1 = [{_,_}|_]]} -> InternalProplist1
+        end,
     case InternalProplist of
         undefined -> undefined;
-        _         -> rabbit_clusterer_utils:proplist_config_to_record(InternalProplist)
+        _         -> rabbit_clusterer_utils:proplist_config_to_record(
+                       InternalProplist)
     end.
 
 write_internal_config(NodeID, Config) ->
@@ -407,10 +410,11 @@ maybe_reboot_into_config(Config,
                                           boot_blocker = undefined,
                                           node_id      = NodeID }) ->
     %% Right, so with no boot blocker we need to set up the config in
-    %% the env and then start up the rabbit application and await the
-    %% boot step hook.
-    Proplist = [{old_path, external_config_path()}
-                | rabbit_clusterer_utils:record_config_to_proplist(NodeID, Config)],
+    %% the env, start up the rabbit application and await the boot
+    %% step hook.
+    Proplist =
+        [{old_path, external_config_path()}
+         | rabbit_clusterer_utils:record_config_to_proplist(NodeID, Config)],
     ok = application:set_env(rabbit, cluster_config, Proplist),
     set_status(preboot, State);
 maybe_reboot_into_config(Config,
@@ -442,16 +446,15 @@ begin_transition(NewConfig, State = #state { node_id = NodeID,
                         case {Status, Melisma} of
                             {ready, true } -> noop;
                             {ready, false} -> reboot;
-                            {_    , true } -> {transitioner, rabbit_clusterer_rejoin};
-                            {_    , false} -> {transitioner, rabbit_clusterer_join}
+                            {_    , true } -> {transitioner, ?REJOIN};
+                            {_    , false} -> {transitioner, ?JOIN}
                         end,
-                    NewConfig1 =
-                        rabbit_clusterer_utils:merge_configs(NodeID, NewConfig, OldConfig),
+                    NewConfig1 = rabbit_clusterer_utils:merge_configs(
+                                   NodeID, NewConfig, OldConfig),
                     case Action of
                         noop ->
-                            {ok, State1} = update_monitoring(
-                                             State #state { config = NewConfig1 }),
-                            State1;
+                            update_monitoring(
+                              State #state { config = NewConfig1 });
                         reboot ->
                             %% Must use the un-merged config here
                             %% otherwise we risk getting a different
@@ -460,7 +463,7 @@ begin_transition(NewConfig, State = #state { node_id = NodeID,
                             maybe_reboot_into_config(
                               NewConfig, set_status(pending_shutdown, State));
                         {transitioner, TModule} ->
-                            {ok, Comms, State1} =
+                            {Comms, State1} =
                                 fresh_comms(State #state { alive_mrefs = [],
                                                            dead        = [] }),
                             process_transitioner_response(
@@ -472,8 +475,6 @@ begin_transition(NewConfig, State = #state { node_id = NodeID,
 
 process_transitioner_response({continue, TState}, State) ->
     State #state { transitioner_state = TState };
-process_transitioner_response({continue, Reply, TState}, State) ->
-    {Reply, State #state { transitioner_state = TState }};
 process_transitioner_response({SuccessOrShutdown, ConfigNew},
                               State = #state { node_id = NodeID,
                                                config  = ConfigOld })
@@ -485,23 +486,22 @@ process_transitioner_response({SuccessOrShutdown, ConfigNew},
     %% start up with an outdated config.
     %%
     %% Just to be safe, merge through the configs
-    ConfigNew1 = rabbit_clusterer_utils:merge_configs(NodeID, ConfigNew, ConfigOld),
+    ConfigNew1 =
+        rabbit_clusterer_utils:merge_configs(NodeID, ConfigNew, ConfigOld),
     ok = write_internal_config(NodeID, ConfigNew1),
-    {ok, State1} = stop_comms(State #state { transitioner_state = undefined,
-                                             config             = ConfigNew1 }),
+    State1 = stop_comms(State #state { transitioner_state = undefined,
+                                       config             = ConfigNew1 }),
     case SuccessOrShutdown of
-        success ->
-            %% Wait for the ready transition before updating monitors
-            set_status(booting, State1);
-        shutdown ->
-            {ok, State2} = update_monitoring(State1),
-            set_status(pending_shutdown, State2)
+        success  -> %% Wait for the ready transition before updating monitors
+                    set_status(booting, State1);
+        shutdown -> set_status(pending_shutdown, update_monitoring(State1))
     end;
 process_transitioner_response({config_changed, ConfigNew},
                               State = #state { node_id = NodeID,
                                                config  = ConfigOld }) ->
     %% Just to be safe, merge through the configs
-    ConfigNew1 = rabbit_clusterer_utils:merge_configs(NodeID, ConfigNew, ConfigOld),
+    ConfigNew1 =
+        rabbit_clusterer_utils:merge_configs(NodeID, ConfigNew, ConfigOld),
     %% If the config has changed then we must now be joining a new
     %% config
     begin_transition(ConfigNew1, State);
@@ -511,15 +511,15 @@ process_transitioner_response({sleep, Delay, Event, TState}, State) ->
 
 
 fresh_comms(State) ->
-    {ok, State1} = stop_comms(State),
+    State1 = stop_comms(State),
     {ok, Token} = rabbit_clusterer_comms_sup:start_comms(),
-    {ok, Token, State1 #state { comms = Token }}.
+    {Token, State1 #state { comms = Token }}.
 
 stop_comms(State = #state { comms = undefined }) ->
-    {ok, State};
+    State;
 stop_comms(State = #state { comms = Token }) ->
     ok = rabbit_clusterer_comms:stop(Token),
-    {ok, State #state { comms = undefined }}.
+    State #state { comms = undefined }.
 
 reset_shutdown(State = #state {
                           status = pending_shutdown,
@@ -542,11 +542,11 @@ update_monitoring(
     ok = send_new_config(ConfigNew, lists:usort(NodesOld)),
     [demonitor(MRef) || MRef <- AliveOld],
     NodeNamesNew = [N || {N, _} <- NodesNew, N =/= MyNode],
-    AliveNew = [monitor(process, {?MODULE, N}) || N <- NodeNamesNew],
-    {ok, State #state { nodes          = NodeNamesNew,
-                        alive_mrefs    = AliveNew,
-                        dead           = [],
-                        poke_timer_ref = undefined }}.
+    AliveNew = [monitor(process, {?SERVER, N}) || N <- NodeNamesNew],
+    State #state { nodes          = NodeNamesNew,
+                   alive_mrefs    = AliveNew,
+                   dead           = [],
+                   poke_timer_ref = undefined }.
 
 ensure_poke_timer(State = #state { poke_timer_ref = undefined }) ->
     %% TODO: justify 2000

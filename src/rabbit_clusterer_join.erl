@@ -32,28 +32,30 @@ event({comms, {[], _BadNodes}}, State = #state { state = awaiting_status }) ->
 event({comms, {Replies, BadNodes}}, State = #state { state   = awaiting_status,
                                                      config  = Config,
                                                      node_id = NodeID }) ->
-    {Youngest, OlderThanUs, StatusDict} =
+    {Youngest, OlderThanUs, Statuses} =
         lists:foldr(
-          fun ({Node, preboot}, {YoungestN, OlderThanUsN, StatusDictN}) ->
-                  {YoungestN, OlderThanUsN, dict:append(preboot, Node, StatusDictN)};
-              ({Node, {ConfigN, StatusN}}, {YoungestN, OlderThanUsN, StatusDictN}) ->
-                  {case rabbit_clusterer_utils:compare_configs(ConfigN, YoungestN) of
-                       invalid ->
-                           %% TODO tidy this up - probably shouldn't be a throw.
-                           throw("Configs with same version numbers but semantically different");
-                       lt -> YoungestN;
-                       _  -> %% i.e. gt *or* eq - must merge if eq too!
-                             rabbit_clusterer_utils:merge_configs(NodeID, ConfigN, YoungestN)
+          fun ({_Node, preboot}, {YoungestN, OlderThanUsN, StatusesN}) ->
+                  {YoungestN, OlderThanUsN, [preboot | StatusesN]};
+              ({Node, {ConfigN, StatusN}},
+               {YoungestN, OlderThanUsN, StatusesN}) ->
+                  {case rabbit_clusterer_utils:compare_configs(ConfigN,
+                                                               YoungestN) of
+                       invalid -> %% TODO tidy this up - probably shouldn't be a throw.
+                                  throw("Configs with same version numbers but semantically different");
+                       lt      -> YoungestN;
+                       _       -> %% i.e. gt *or* eq - must merge if eq too!
+                                  rabbit_clusterer_utils:merge_configs(
+                                    NodeID, ConfigN, YoungestN)
                    end,
-                   case rabbit_clusterer_utils:compare_configs(ConfigN, Config) of
-                       lt -> [Node | OlderThanUsN];
-                       invalid ->
-                           %% TODO tidy this up - probably shouldn't be a throw.
-                           throw("Configs with same version numbers but semantically different");
-                       _  -> OlderThanUsN
+                   case rabbit_clusterer_utils:compare_configs(ConfigN,
+                                                               Config) of
+                       invalid -> %% TODO tidy this up - probably shouldn't be a throw.
+                                  throw("Configs with same version numbers but semantically different");
+                       lt      -> [Node | OlderThanUsN];
+                       _       -> OlderThanUsN
                    end,
-                   dict:append(StatusN, Node, StatusDictN)}
-          end, {Config, [], dict:new()}, Replies),
+                   [StatusN | StatusesN]}
+          end, {Config, [], []}, Replies),
     %% Expected keys in StatusDict are:
     %% - preboot:
     %%    clusterer has started, but the boot step not yet hit
@@ -73,7 +75,6 @@ event({comms, {Replies, BadNodes}}, State = #state { state   = awaiting_status,
             %% Youngest from here on as it has the updated
             %% node_id_maps.
             State1 = State #state { config = Youngest },
-            #config { nodes = Nodes, gospel = Gospel } = Youngest,
             case OlderThanUs of
                 [_|_] ->
                     %% Update nodes which are older than us. In
@@ -83,11 +84,8 @@ event({comms, {Replies, BadNodes}}, State = #state { state   = awaiting_status,
                     update_remote_nodes(OlderThanUs, State1);
                 [] ->
                     %% Everyone here has the same config
-                    ReadyNodes = case dict:find(ready, StatusDict) of
-                                     {ok, List} -> List;
-                                     error      -> []
-                                 end,
-                    AllJoining = [{transitioner, ?MODULE}] =:= dict:fetch_keys(StatusDict),
+                    ReadyNodes = lists:member(ready, Statuses),
+                    AllJoining = [{transitioner, ?MODULE}] =:= Statuses,
                     %% ReadyNodes are nodes that are in this cluster
                     %% (well, they could be in any cluster, but seeing
                     %% as we've checked everyone has the same cluster
@@ -123,35 +121,15 @@ event({comms, {Replies, BadNodes}}, State = #state { state   = awaiting_status,
                     %%   change state) because if they do succeed we
                     %%   should sync off them.
                     case ReadyNodes of
-                        [_|_] ->
-                            ok = rabbit_clusterer_utils:wipe_mnesia(),
-                            ok = rabbit_clusterer_utils:configure_cluster(Nodes),
+                        true ->
+                            ok = cluster_with_nodes(Youngest),
                             {success, Youngest};
-                        [] when AllJoining andalso BadNodes =:= [] ->
-                            {Wipe, Leader} =
-                                case Gospel of
-                                    {node, Node} ->
-                                        {Node =/= node(), Node};
-                                    reset ->
-                                        [Leader1 | _] =
-                                            lists:usort([N || {N, disc} <- Nodes]),
-                                        {true, Leader1}
-                                end,
-                            case node() of
-                                Leader ->
-                                    ok = case Wipe of
-                                             true  -> rabbit_clusterer_utils:wipe_mnesia();
-                                             false -> rabbit_clusterer_utils:eliminate_mnesia_dependencies()
-                                         end,
-                                    ok = case node() of
-                                             Leader -> rabbit_clusterer_utils:configure_cluster(undefined);
-                                             _      -> rabbit_clusterer_utils:configure_cluster(Nodes)
-                                         end,
-                                    {success, Youngest};
-                                _ ->
-                                    delayed_request_status(State1)
+                        false when AllJoining andalso BadNodes =:= [] ->
+                            case maybe_form_new_cluster(Youngest) of
+                                true  -> {success, Youngest};
+                                false -> delayed_request_status(State1)
                             end;
-                        [] ->
+                        false ->
                             delayed_request_status(State1)
                     end
             end;
@@ -164,11 +142,12 @@ event({delayed_request_status, Ref},
 event({delayed_request_status, _Ref}, State) ->
     %% ignore it
     {configure, State};
-event({request_config, NewNode, NewNodeID},
+event({request_config, NewNode, NewNodeID, Fun},
       State = #state { config = Config, node_id = NodeID }) ->
     {_NodeIDChanged, Config1} =
         rabbit_clusterer_utils:add_node_id(NewNode, NewNodeID, NodeID, Config),
-    {continue, Config1, State #state { config = Config1 }}.
+    ok = Fun(Config1),
+    {continue, State #state { config = Config1 }}.
 
 request_status(State = #state { comms   = Comms,
                                 node_id = NodeID,
@@ -191,3 +170,33 @@ update_remote_nodes(Nodes, State = #state { config = Config, comms = Comms }) ->
     Msg = rabbit_clusterer_coordinator:template_new_config(Config),
     ok = rabbit_clusterer_comms:multi_cast(Nodes, Msg, Comms),
     delayed_request_status(State).
+
+cluster_with_nodes(#config { nodes = Nodes }) ->
+    ok = rabbit_clusterer_utils:wipe_mnesia(),
+    ok = rabbit_clusterer_utils:configure_cluster(Nodes).
+
+maybe_form_new_cluster(#config { nodes = Nodes, gospel = Gospel }) ->
+    MyNode = node(),
+    {Wipe, Leader} =
+        case Gospel of
+            {node, Node} -> {Node =/= MyNode, Node};
+            reset -> [Leader1 | _] = lists:usort([N || {N, disc} <- Nodes]),
+                     {true, Leader1}
+        end,
+    case Leader of
+        MyNode ->
+            ok = case Wipe of
+                     true ->
+                         rabbit_clusterer_utils:wipe_mnesia();
+                     false ->
+                         rabbit_clusterer_utils:eliminate_mnesia_dependencies()
+                 end,
+            ok = case node() of
+                     Leader -> rabbit_clusterer_utils:configure_cluster([]);
+                     _      -> rabbit_clusterer_utils:configure_cluster(Nodes)
+                 end,
+            true;
+        _ ->
+            false
+    end.
+    

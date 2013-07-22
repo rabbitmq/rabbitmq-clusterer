@@ -16,8 +16,18 @@
          stop_rabbit/0,
          ensure_start_mnesia/0,
          detect_melisma/2,
+         nodenames/1,
+         node_in_config/2,
          node_in_config/1
         ]).
+
+
+%%----------------------------------------------------------------------------
+%% Config loading / conversion
+%%----------------------------------------------------------------------------
+
+%% Note that here we intentionally deal with NodeID being in the
+%% proplist as on disk but not in the #config record.
 
 default_config() ->
     proplist_config_to_record(
@@ -81,8 +91,9 @@ normalise_nodes(Nodes) when is_list(Nodes) ->
                     ({Node, ram} = E)  when is_atom(Node) -> E
                 end, Nodes)).
 
-%% Sod it - we just regenerate map_id_node rather than trying to
-%% tidy. Easy to ensure correctness.
+%% We just regenerate map_id_node rather than trying to tidy both to
+%% match. Easy to ensure correctness and for the small maps we're
+%% dealing with it'll be just as fast.
 tidy_node_id_maps(NodeID, Config = #config { nodes = Nodes,
                                              map_node_id = NodeToID }) ->
     %% We always remove ourself from the maps to take into account our
@@ -111,7 +122,8 @@ merge_node_id_maps(NodeID,
                    _ConfigSrc = #config { map_node_id = NodeToIDSrc }) ->
     NodeToIDDest1 = orddict:merge(fun (_Node, IDDest, _IDSrc) -> IDDest end,
                                   NodeToIDDest, NodeToIDSrc),
-    tidy_node_id_maps(NodeID, ConfigDest #config { map_node_id = NodeToIDDest1 }).
+    tidy_node_id_maps(NodeID,
+                      ConfigDest #config { map_node_id = NodeToIDDest1 }).
 
 merge_configs(NodeID, ConfigDest, ConfigSrc = #config {}) ->
     merge_node_id_maps(NodeID, ConfigDest, ConfigSrc);
@@ -144,14 +156,14 @@ record_config_to_proplist(NodeID, Config = #config {}) ->
           end, {2, []}, Fields),
     [{node_id, NodeID} | Proplist].
 
-%% We very deliberately completely ignore the map_* fields here or the
-%% node_id. They are not semantically important from the POV of config
-%% equivalence.
-compare_configs(
-  #config { version = V, minor_version = MV, gospel = GA, shutdown_timeout = STA, nodes = NA },
-  #config { version = V, minor_version = MV, gospel = GB, shutdown_timeout = STB, nodes = NB }) ->
+%% We very deliberately completely ignore the map_* fields here. They
+%% are not semantically important from the POV of config equivalence.
+compare_configs(#config { version = V, minor_version = MV, gospel = GA,
+                          shutdown_timeout = STA, nodes = NA },
+                #config { version = V, minor_version = MV, gospel = GB,
+                          shutdown_timeout = STB, nodes = NB }) ->
     case {[GA, STA, lists:usort(NA)], [GB, STB, lists:usort(NB)]} of
-        {X, X} -> eq;
+        {EQ, EQ} -> eq;
         _      -> invalid
     end;
 compare_configs(#config { version = VA, minor_version = MVA },
@@ -161,11 +173,13 @@ compare_configs(#config { version = VA, minor_version = MVA },
         false -> lt
     end.
 
-%% The point of this if to detect whether we really do need to join or
-%% rejoin even when the cluster config has changed. Essentially, if
-%% the gospel node in the new config is someone we were already
-%% clustered with in the old config then we shouldn't do a wipe: we
-%% are rejoining rather than joining.
+%% If the config has changed, we need to figure out whether we need to
+%% do a full join (which may well include wiping out mnesia) or
+%% whether the config has simply evolved and we can do something
+%% softer (maybe nothing at all). Essentially, if the gospel node in
+%% the new config is someone we thought we knew but who's been reset
+%% (so their node_id has changed) then we'll need to do a fresh sync
+%% to them.
 %% Yes, melisma is a surprising choice. But 'compatible' or 'upgrade'
 %% isn't right either. I like the idea of a cluster continuing to
 %% slide from one config to another, hence melisma.
@@ -173,21 +187,27 @@ detect_melisma(#config { gospel = reset }, _OldConfig) ->
     false;
 detect_melisma(#config {}, undefined) ->
     false;
-detect_melisma(#config { gospel      = {node, Node},
-                         map_node_id = MapNodeIDNew },
-               #config { nodes       = Nodes,
-                         map_node_id = MapNodeIDOld }) ->
-    case [N || {N, _} <- Nodes, N =:= Node] of
-        []    -> false;
-        [_|_] -> case {orddict:find(Node, MapNodeIDNew),
+detect_melisma(#config { gospel = {node, Node}, map_node_id = MapNodeIDNew },
+               ConfigOld = #config { map_node_id = MapNodeIDOld }) ->
+    case node_in_config(Node, ConfigOld) of
+        true  -> case {orddict:find(Node, MapNodeIDNew),
                        orddict:find(Node, MapNodeIDOld)} of
-                     {{ok, Id}, {ok, Id}} -> true;
-                     _                    -> false
-                 end
+                     {{ok, IdA}, {ok, IdB}} when IdA =/= IdB -> false;
+                     {_        , _        }                  -> true
+                 end;
+        false -> false
     end.
 
-node_in_config(#config { nodes = Nodes }) ->
-    [] =/= [N || {N, _} <- Nodes, N =:= node()].
+node_in_config(Config) ->
+    node_in_config(node(), Config).
+
+node_in_config(Node, #config { nodes = Nodes }) ->
+    [] =/= [N || {N, _} <- Nodes, N =:= Node].
+
+nodenames(#config { nodes = Nodes }) ->
+    nodenames(Nodes);
+nodenames(Nodes) when is_list(Nodes) ->
+    [N || {N, _} <- Nodes].
 
 %%----------------------------------------------------------------------------
 %% Inspecting known-at-shutdown cluster state
@@ -240,12 +260,12 @@ configure_cluster(Nodes) ->
         {error, {already_loaded, rabbit}} -> ok
     end,
     case Nodes of
-        undefined ->
-            ok = application:set_env(rabbit, cluster_nodes, {[], disc});
         [_|_] ->
-            NodeNames = [N || {N, _} <- Nodes],
+            NodeNames = nodenames(Nodes),
             Mode = proplists:get_value(node(), Nodes),
-            ok = application:set_env(rabbit, cluster_nodes, {NodeNames, Mode})
+            ok = application:set_env(rabbit, cluster_nodes, {NodeNames, Mode});
+        _ ->
+            ok = application:set_env(rabbit, cluster_nodes, {[], disc})
     end.
 
 stop_rabbit() ->

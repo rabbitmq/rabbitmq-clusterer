@@ -35,8 +35,9 @@ init(Config = #config { nodes = Nodes }, NodeID, Comms) ->
             end
     end.
 
-event({request_config, NewNode, NewNodeID},
+event({request_config, NewNode, NewNodeID, Fun},
       State = #state { node_id = NodeID, config  = Config }) ->
     {_NodeIDChanged, Config1} =
         rabbit_clusterer_utils:add_node_id(NewNode, NewNodeID, NodeID, Config),
-    {continue, Config1, State #state { config = Config1 }}.
+    ok = Fun(Config1),
+    {continue, State #state { config = Config1 }}.
