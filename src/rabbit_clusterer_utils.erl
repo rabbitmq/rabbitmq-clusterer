@@ -71,7 +71,7 @@ proplist_config_to_record(Proplist) when is_list(Proplist) ->
     Config2 = #config { gospel = Gospel } = Config1 #config { nodes = Nodes1 },
     case Gospel of
         reset        -> {NodeID, Config2};
-        {node, Node} -> disc = proplists:get_value(Node, Nodes1), %% ASSERTION
+        {node, Node} -> true = proplists:is_defined(Node, Nodes1), %% ASSERTION
                         {NodeID, Config2}
     end.
 
