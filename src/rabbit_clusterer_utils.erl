@@ -42,46 +42,116 @@ required_keys() ->
 
 optional_keys() ->
     NodeID = create_node_id(),
-    [{minor_version, 0},
-     {map_node_id, orddict:from_list([{node(), NodeID}])},
+    [{map_node_id, orddict:from_list([{node(), NodeID}])},
      {map_id_node, orddict:from_list([{NodeID, node()}])},
      {node_id, NodeID}].
 
-%% Generally we're somewhat brutal in the validation currently - we
-%% just blow up whenever we encounter something that's not right. This
-%% can be improved later. In general, this code could gain a lot from
-%% some of the monadic code in the shovel config work.
 proplist_config_to_record(Proplist) when is_list(Proplist) ->
-    Keys = proplists:get_keys(Proplist),
-    [] = required_keys() -- Keys, %% ASSERTION
-    Proplist1 = ensure_entries(optional_keys(), Proplist),
-    [] = (proplists:get_keys(Proplist1) -- required_keys())
-        -- proplists:get_keys(optional_keys()), %% ASSERTION
-    Config = #config {},
+    ok = check_required_keys(Proplist),
+    Proplist1 = add_optional_keys(Proplist),
     Fields = record_info(fields, config),
-    {_Pos, Config1 = #config { nodes = Nodes }} =
+    {_Pos, Config = #config { nodes = Nodes }} =
         lists:foldl(fun (FieldName, {Pos, ConfigN}) ->
                             Value = proplists:get_value(FieldName, Proplist1),
                             {Pos + 1, setelement(Pos, ConfigN, Value)}
-                    end, {2, Config}, Fields),
-    Nodes1 = normalise_nodes(Nodes),
-    true = [] =/= [N || {N, disc} <- Nodes1], %% ASSERTION
+                    end, {2, #config {}}, Fields),
+    ok = validate_config(Config),
+    Config1 = Config #config { nodes = normalise_nodes(Nodes) },
     NodeID = proplists:get_value(node_id, Proplist1),
-    true = NodeID =/= undefined, %% ASSERTION
-    Config2 = #config { gospel = Gospel } = Config1 #config { nodes = Nodes1 },
-    case Gospel of
-        reset        -> {NodeID, Config2};
-        {node, Node} -> true = proplists:is_defined(Node, Nodes1), %% ASSERTION
-                        {NodeID, Config2}
+    true = is_binary(NodeID), %% ASSERTION
+    {NodeID, Config1}.
+
+check_required_keys(Proplist) ->
+    case required_keys() -- proplists:get_keys(Proplist) of
+        []      -> ok;
+        Missing -> {error, rabbit_misc:format(
+                             "Required keys missing from cluster config: ~p",
+                             [Missing])}
     end.
 
-ensure_entries(Entries, Proplist) ->
+add_optional_keys(Proplist) ->
     lists:foldr(fun ({Key, _Default} = E, ProplistN) ->
                         case proplists:is_defined(Key, ProplistN) of
                             true  -> ProplistN;
                             false -> [E | ProplistN]
                         end
-                end, Proplist, Entries).
+                end, Proplist, optional_keys()).
+
+validate_config(Config) ->
+    {Result, _Pos} =
+        lists:foldl(fun (FieldName, {ok, Pos}) ->
+                            {validate_config_key(
+                               FieldName, element(Pos, Config), Config),
+                             Pos+1};
+                        (_FieldName, {{error, _E}, _Pos} = Err) ->
+                            Err
+                    end, {ok, 2}, record_info(fields, config)),
+    Result.
+
+validate_config_key(version, Version, _Config)
+  when is_integer(Version) andalso Version >= 0 ->
+    ok;
+validate_config_key(version, Version, _Config) ->
+    {error, rabbit_misc:format("Require version to be non-negative integer: ~p",
+                               [Version])};
+validate_config_key(gospel, reset, _Config) ->
+    ok;
+validate_config_key(gospel, {node, Node}, Config = #config { nodes = Nodes }) ->
+    case [true || N <- Nodes,
+                  Node =:= N orelse
+                  {Node, disc} =:= N orelse
+                  {Node, disk} =:= N] of
+        []    -> {error, rabbit_misc:format(
+                           "Node in gospel (~p) is not in nodes (~p)",
+                           [Node, Config #config.nodes])};
+        [_|_] -> ok
+    end;
+validate_config_key(gospel, Gospel, _Config) ->
+    {error, rabbit_misc:format("Invalid gospel setting: ~p", [Gospel])};
+validate_config_key(shutdown_timeout, infinity, _Config) ->
+    ok;
+validate_config_key(shutdown_timeout, Timeout, _Config)
+  when is_integer(Timeout) andalso Timeout >= 0 ->
+    ok;
+validate_config_key(shutdown_timeout, Timeout, _Config) ->
+    {error,
+     rabbit_misc:format(
+       "Require shutdown_timeout to be 'infinity' or non-negative integer: ~p",
+       [Timeout])};
+validate_config_key(nodes, Nodes, _Config) when is_list(Nodes) ->
+    {Result, Disc, NodeNames} =
+        lists:foldr(
+          fun ({Node, disc}, {ok, _, NN}) when is_atom(Node) ->
+                  {ok, true, [Node | NN]};
+              ({Node, disk}, {ok, _, NN}) when is_atom(Node) ->
+                  {ok, true, [Node | NN]};
+              ({Node, ram }, {ok, D, NN}) when is_atom(Node) ->
+                  {ok, D,    [Node | NN]};
+              (Node,         {ok, _, NN}) when is_atom(Node) ->
+                  {ok, true, [Node | NN]};
+              (Other,        {ok, _, _NN}) ->
+                  {error, rabbit_misc:format("Invalid node: ~p", [Other]), []};
+              (_, {error, _E, _NN} = Err) -> Err
+          end, {ok, false, []}, Nodes),
+    case {Result, Disc, length(NodeNames) =:= length(lists:usort(NodeNames))} of
+        {ok, true, true} ->
+            ok;
+        {ok, true, false} ->
+            {error, rabbit_misc:format(
+                      "Some nodes specified more than once: ~p", [NodeNames])};
+        {ok, false, _} ->
+            {error, rabbit_misc:format(
+                      "Require at least one disc node: ~p", [Nodes])};
+        {error, Err, _} ->
+            {error, Err}
+    end;
+validate_config_key(nodes, Nodes, _Config) ->
+    {error,
+     rabbit_misc:format("Require nodes to be a list of nodes: ~p", [Nodes])};
+validate_config_key(map_node_id, _Orddict, _Config) ->
+    ok;
+validate_config_key(map_id_node, _Orddict, _Config) ->
+    ok.
 
 normalise_nodes(Nodes) when is_list(Nodes) ->
     lists:usort(
@@ -158,17 +228,17 @@ record_config_to_proplist(NodeID, Config = #config {}) ->
 
 %% We very deliberately completely ignore the map_* fields here. They
 %% are not semantically important from the POV of config equivalence.
-compare_configs(#config { version = V, minor_version = MV, gospel = GA,
-                          shutdown_timeout = STA, nodes = NA },
-                #config { version = V, minor_version = MV, gospel = GB,
-                          shutdown_timeout = STB, nodes = NB }) ->
+compare_configs(#config { version = V, gospel = GA, nodes = NA,
+                          shutdown_timeout = STA },
+                #config { version = V, gospel = GB, nodes = NB,
+                          shutdown_timeout = STB }) ->
     case {[GA, STA, lists:usort(NA)], [GB, STB, lists:usort(NB)]} of
         {EQ, EQ} -> eq;
-        _      -> invalid
+        _        -> invalid
     end;
-compare_configs(#config { version = VA, minor_version = MVA },
-                #config { version = VB, minor_version = MVB }) ->
-    case {VA, MVA} > {VB, MVB} of
+compare_configs(#config { version = VA },
+                #config { version = VB }) ->
+    case VA > VB of
         true  -> gt;
         false -> lt
     end.

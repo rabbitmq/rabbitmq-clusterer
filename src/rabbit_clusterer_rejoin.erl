@@ -6,9 +6,12 @@
 
 -include("rabbit_clusterer.hrl").
 
+%% This transitioner is very simple as we have very little work to
+%% do. All we really want to do is to avoid the timeout on
+%% mnesia:wait_for_tables so we just need to figure out who we depend
+%% on to rejoin and then wait for them to be running.
 init(Config = #config { nodes = Nodes }, NodeID, Comms) ->
     Node = node(),
-    %% Check we're actually involved in this
     case proplists:get_value(Node, Nodes) of
         disc when length(Nodes) =:= 1 ->
             %% Simple: we're continuing to cluster with ourself and

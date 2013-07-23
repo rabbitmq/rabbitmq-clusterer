@@ -83,7 +83,10 @@ event({comms, {Replies, BadNodes}}, State = #state { state   = awaiting_status,
                     %% they'll just have to cope.
                     update_remote_nodes(OlderThanUs, State1);
                 [] ->
-                    %% Everyone here has the same config
+                    %% Everyone here has the same config, thus
+                    %% Statuses can be trusted as the statuses of all
+                    %% nodes trying to achieve *this* config and not
+                    %% some other config.
                     ReadyNodes = lists:member(ready, Statuses),
                     AllJoining = [{transitioner, ?MODULE}] =:= Statuses,
                     %% ReadyNodes are nodes that are in this cluster
