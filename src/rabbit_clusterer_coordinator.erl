@@ -140,7 +140,7 @@ handle_call({request_status, NewNode, NewNodeID}, _From,
     %% Status \in {pending_shutdown, booting, ready}
     {_NodeIDChanged, Config1} =
         rabbit_clusterer_utils:add_node_id(NewNode, NewNodeID, NodeID, Config),
-    State1 = reset_shutdown(State #state { config = Config1 }),
+    State1 = reschedule_shutdown(State #state { config = Config1 }),
     {reply, {Config1, Status}, State1};
 
 %% anything else kills us
@@ -323,7 +323,7 @@ set_status(pending_shutdown, State = #state { boot_blocker = Blocker }) ->
             %% rabbit boot right here.
             ok
     end,
-    reset_shutdown(State #state { status = pending_shutdown });
+    State #state { status = pending_shutdown };
 set_status(booting, State = #state { status       = {transitioner, _},
                                      boot_blocker = Blocker }) ->
     case Blocker of
@@ -420,7 +420,7 @@ maybe_reboot_into_config(Config,
 maybe_reboot_into_config(Config,
                          State = #state { status = pending_shutdown }) ->
     begin_transition(Config, set_status(preboot, State)).
-    
+
 
 %%----------------------------------------------------------------------------
 %% Changing cluster config
@@ -494,7 +494,8 @@ process_transitioner_response({SuccessOrShutdown, ConfigNew},
     case SuccessOrShutdown of
         success  -> %% Wait for the ready transition before updating monitors
                     set_status(booting, State1);
-        shutdown -> set_status(pending_shutdown, update_monitoring(State1))
+        shutdown -> schedule_shutdown(
+                      set_status(pending_shutdown, update_monitoring(State1)))
     end;
 process_transitioner_response({config_changed, ConfigNew},
                               State = #state { node_id = NodeID,
@@ -521,17 +522,26 @@ stop_comms(State = #state { comms = Token }) ->
     ok = rabbit_clusterer_comms:stop(Token),
     State #state { comms = undefined }.
 
-reset_shutdown(State = #state {
+schedule_shutdown(State = #state {
                           status = pending_shutdown,
                           config = #config { shutdown_timeout = infinity } }) ->
     State #state { transitioner_state = undefined };
-reset_shutdown(State = #state {
+schedule_shutdown(State = #state {
                           status = pending_shutdown,
                           config = #config { shutdown_timeout = Timeout } }) ->
     Ref = make_ref(),
     erlang:send_after(Timeout*1000, self(), {shutdown, Ref}),
     State #state { transitioner_state = {shutdown, Ref} };
-reset_shutdown(State) ->
+schedule_shutdown(State) ->
+    State.
+
+reschedule_shutdown(
+  State = #state { status = pending_shutdown,
+                   transitioner_state = {shutdown, _Ref},
+                   config = #config { shutdown_timeout = Timeout } }) ->
+    true = Timeout =/= infinity, %% ASSERTION
+    schedule_shutdown(State);
+reschedule_shutdown(State) ->
     State.
 
 update_monitoring(
