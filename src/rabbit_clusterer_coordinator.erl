@@ -48,7 +48,7 @@ send_new_config(_Config, []) ->
     ok;
 send_new_config(Config, Nodes) when is_list(Nodes) ->
     abcast = gen_server:abcast(
-               Nodes, ?SERVER, template_new_config(Config)),
+               lists:usort(Nodes), ?SERVER, template_new_config(Config)),
     ok.
 
 template_new_config(Config) ->
@@ -166,19 +166,30 @@ handle_cast({comms, _Comms, _Result}, State) ->
 
 handle_cast({new_config, _ConfigRemote, Node},
             State = #state { status = Status, nodes  = Nodes })
-  when Status =:= preboot orelse
-       ?IS_TRANSITIONER(Status) orelse
-       Status =:= booting ->
-    %% In preboot or {transitioner,_} we don't know what our eventual
-    %% config is going to be so as a result we just ignore the
-    %% provided remote config but make a note to send over our
-    %% eventual config to this node once we've sorted ourselves
-    %% out. In booting, it's not safe to reconfigure rabbit, so again,
-    %% we just wait.
+  when Status =:= preboot orelse Status =:= booting ->
+    %% In preboot we don't know what our eventual config is going to
+    %% be so as a result we just ignore the provided remote config but
+    %% make a note to send over our eventual config to this node once
+    %% we've sorted ourselves out. In booting, it's not safe to
+    %% reconfigure our own rabbit, and given the transitioning state
+    %% of mnesia during rabbit boot we don't want anyone else to
+    %% interfere either, so again, we just wait.
     %%
     %% Don't worry about dupes, we'll filter them out when we come to
     %% deal with the list.
     {noreply, State #state { nodes = [Node | Nodes] }};
+handle_cast({new_config, ConfigRemote, Node},
+            State = #state { status = {transitioner, TModule},
+                             transitioner_state = TState }) ->
+    %% We have to deal with this case because we could have the
+    %% situation where we are blocked in the transitioner waiting for
+    %% another node to come up but there really is a younger config
+    %% that has become available that we should be transitioning
+    %% to. If we don't deal with this we can potentially have a
+    %% deadlock.
+    {noreply,
+     process_transitioner_response(
+       TModule:event({new_config, ConfigRemote, Node}, TState), State)};
 handle_cast({new_config, ConfigRemote, Node},
             State = #state { config = Config }) ->
     %% Status is either running on pending_shutdown. In both cases, we
@@ -428,6 +439,7 @@ maybe_reboot_into_config(Config,
 
 begin_transition(NewConfig, State = #state { node_id = NodeID,
                                              config  = OldConfig,
+                                             nodes   = Nodes,
                                              status  = Status }) ->
     true = Status =/= booting, %% ASSERTION
     case rabbit_clusterer_utils:node_in_config(NewConfig) of
@@ -463,9 +475,14 @@ begin_transition(NewConfig, State = #state { node_id = NodeID,
                             maybe_reboot_into_config(
                               NewConfig, set_status(pending_shutdown, State));
                         {transitioner, TModule} ->
+                            ok = send_new_config(NewConfig1, Nodes),
+                            %% Wipe out alive_mrefs and dead so that
+                            %% if we get DOWN's we don't care about
+                            %% them.
                             {Comms, State1} =
                                 fresh_comms(State #state { alive_mrefs = [],
-                                                           dead        = [] }),
+                                                           dead        = [],
+                                                           nodes       = [] }),
                             process_transitioner_response(
                               TModule:init(NewConfig1, NodeID, Comms),
                               set_status(TModule, State1))
@@ -484,28 +501,19 @@ process_transitioner_response({SuccessOrShutdown, ConfigNew},
     %% config applied to us that tells us to shutdown, we must record
     %% that config, otherwise we can later be restarted and try to
     %% start up with an outdated config.
-    %%
-    %% Just to be safe, merge through the configs
-    ConfigNew1 =
-        rabbit_clusterer_utils:merge_configs(NodeID, ConfigNew, ConfigOld),
-    ok = write_internal_config(NodeID, ConfigNew1),
+    ok = write_internal_config(NodeID, ConfigNew),
     State1 = stop_comms(State #state { transitioner_state = undefined,
-                                       config             = ConfigNew1 }),
+                                       config             = ConfigNew }),
     case SuccessOrShutdown of
         success  -> %% Wait for the ready transition before updating monitors
                     set_status(booting, State1);
         shutdown -> schedule_shutdown(
                       set_status(pending_shutdown, update_monitoring(State1)))
     end;
-process_transitioner_response({config_changed, ConfigNew},
-                              State = #state { node_id = NodeID,
-                                               config  = ConfigOld }) ->
-    %% Just to be safe, merge through the configs
-    ConfigNew1 =
-        rabbit_clusterer_utils:merge_configs(NodeID, ConfigNew, ConfigOld),
-    %% If the config has changed then we must now be joining a new
-    %% config
-    begin_transition(ConfigNew1, State);
+process_transitioner_response({config_changed, ConfigNew}, State) ->
+    %% begin_transition relies on unmerged configs, so don't merge
+    %% through here.
+    begin_transition(ConfigNew, State);
 process_transitioner_response({sleep, Delay, Event, TState}, State) ->
     erlang:send_after(Delay, self(), {transitioner_delay, Event}),
     State #state { transitioner_state = TState }.
@@ -549,7 +557,7 @@ update_monitoring(
                    nodes       = NodesOld,
                    alive_mrefs = AliveOld }) ->
     MyNode = node(),
-    ok = send_new_config(ConfigNew, lists:usort(NodesOld)),
+    ok = send_new_config(ConfigNew, NodesOld),
     [demonitor(MRef) || MRef <- AliveOld],
     NodeNamesNew = [N || {N, _} <- NodesNew, N =/= MyNode],
     AliveNew = [monitor(process, {?SERVER, N}) || N <- NodeNamesNew],

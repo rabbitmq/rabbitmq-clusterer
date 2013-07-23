@@ -141,13 +141,22 @@ event({delayed_request_status, Ref},
     request_status(State);
 event({delayed_request_status, _Ref}, State) ->
     %% ignore it
-    {configure, State};
+    {continue, State};
 event({request_config, NewNode, NewNodeID, Fun},
       State = #state { config = Config, node_id = NodeID }) ->
     {_NodeIDChanged, Config1} =
         rabbit_clusterer_utils:add_node_id(NewNode, NewNodeID, NodeID, Config),
     ok = Fun(Config1),
-    {continue, State #state { config = Config1 }}.
+    {continue, State #state { config = Config1 }};
+event({new_config, ConfigRemote, Node}, State = #state { config = Config }) ->
+    case rabbit_clusterer_utils:compare_configs(ConfigRemote, Config) of
+        lt -> ok = rabbit_clusterer_coordinator:send_new_config(Config, Node),
+              {continue, State};
+        gt -> {config_changed, ConfigRemote};
+        _  -> %% ignore
+              {continue, State}
+    end.
+
 
 request_status(State = #state { comms   = Comms,
                                 node_id = NodeID,
@@ -199,4 +208,3 @@ maybe_form_new_cluster(#config { nodes = Nodes, gospel = Gospel }) ->
         _ ->
             false
     end.
-    
