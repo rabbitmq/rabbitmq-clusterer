@@ -121,7 +121,7 @@ handle_call({request_status, _Node, _NodeID}, _From,
             State = #state { status = preboot }) ->
     %% If status = preboot then we have the situation that a remote
     %% node is contacting us (it's in {transitioner,_}) before we've
-    %% even started reading in our cluster configs. We need to ignore
+    %% even started reading in our cluster configs. We need to "ignore"
     %% them. They'll either wait for us, or they'll start up and bring
     %% us in later on anyway.
     {reply, preboot, State};

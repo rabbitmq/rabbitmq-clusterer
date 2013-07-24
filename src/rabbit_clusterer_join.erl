@@ -2,14 +2,15 @@
 
 -export([init/3, event/2]).
 
--record(state, { node_id, config, comms, state }).
+-record(state, { node_id, config, comms, status }).
 
 -include("rabbit_clusterer.hrl").
 
 init(Config = #config { nodes = Nodes,
                         gospel = Gospel }, NodeID, Comms) ->
-    case proplists:get_value(node(), Nodes) of
-        disc when length(Nodes) =:= 1 ->
+    MyNode = node(),
+    case Nodes of
+        [{MyNode, disc}] ->
             ok = case Gospel of
                      reset ->
                          rabbit_clusterer_utils:wipe_mnesia();
@@ -19,17 +20,15 @@ init(Config = #config { nodes = Nodes,
                          rabbit_clusterer_utils:eliminate_mnesia_dependencies()
                  end,
             {success, Config};
-        ram when length(Nodes) =:= 1 ->
-            {error, ram_only_cluster_config};
-        Mode when Mode =/= undefined ->
+        [_|_] ->
             request_status(#state { config  = Config,
                                     comms   = Comms,
                                     node_id = NodeID })
     end.
 
-event({comms, {[], _BadNodes}}, State = #state { state = awaiting_status }) ->
+event({comms, {[], _BadNodes}}, State = #state { status = awaiting_status }) ->
     delayed_request_status(State);
-event({comms, {Replies, BadNodes}}, State = #state { state   = awaiting_status,
+event({comms, {Replies, BadNodes}}, State = #state { status  = awaiting_status,
                                                      config  = Config,
                                                      node_id = NodeID }) ->
     {Youngest, OlderThanUs, Statuses} =
@@ -140,7 +139,7 @@ event({comms, {Replies, BadNodes}}, State = #state { state   = awaiting_status,
             {config_changed, Youngest}
     end;
 event({delayed_request_status, Ref},
-      State = #state { state = {delayed_request_status, Ref} }) ->
+      State = #state { status = {delayed_request_status, Ref} }) ->
     request_status(State);
 event({delayed_request_status, _Ref}, State) ->
     %% ignore it
@@ -168,13 +167,13 @@ request_status(State = #state { comms   = Comms,
     NodesNotUs = [ N || {N, _Mode} <- Nodes, N =/= MyNode ],
     ok = rabbit_clusterer_comms:multi_call(
            NodesNotUs, {request_status, MyNode, NodeID}, Comms),
-    {continue, State #state { state = awaiting_status }}.
+    {continue, State #state { status = awaiting_status }}.
 
 delayed_request_status(State) ->
     %% TODO: work out some sensible timeout value
     Ref = make_ref(),
     {sleep, 1000, {delayed_request_status, Ref},
-     State #state { state = {delayed_request_status, Ref} }}.
+     State #state { status = {delayed_request_status, Ref} }}.
 
 update_remote_nodes(Nodes, State = #state { config = Config, comms = Comms }) ->
     %% Assumption here is Nodes does not contain node(). We

@@ -5,7 +5,6 @@
 -export([default_config/0,
          proplist_config_to_record/1,
          record_config_to_proplist/2,
-         load_last_seen_cluster_state/0,
          compare_configs/2,
          wipe_mnesia/0,
          merge_configs/3,
@@ -278,16 +277,6 @@ nodenames(#config { nodes = Nodes }) ->
     nodenames(Nodes);
 nodenames(Nodes) when is_list(Nodes) ->
     [N || {N, _} <- Nodes].
-
-%%----------------------------------------------------------------------------
-%% Inspecting known-at-shutdown cluster state
-%%----------------------------------------------------------------------------
-
-load_last_seen_cluster_state() ->
-    try {ok, rabbit_node_monitor:read_cluster_status()}
-    catch {error, Err} -> {error, Err}
-    end.
-
 
 
 %%----------------------------------------------------------------------------
