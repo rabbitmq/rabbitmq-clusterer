@@ -324,19 +324,14 @@ eliminate_mnesia_dependencies() ->
     ok = rabbit_table:force_load(),
     ok = rabbit_node_monitor:reset_cluster_status().
 
-configure_cluster(Nodes) ->
+configure_cluster(Nodes = [_|_]) ->
     case application:load(rabbit) of
         ok                                -> ok;
         {error, {already_loaded, rabbit}} -> ok
     end,
-    case Nodes of
-        [_|_] ->
-            NodeNames = nodenames(Nodes),
-            Mode = proplists:get_value(node(), Nodes),
-            ok = application:set_env(rabbit, cluster_nodes, {NodeNames, Mode});
-        _ ->
-            ok = application:set_env(rabbit, cluster_nodes, {[], disc})
-    end.
+    NodeNames = nodenames(Nodes),
+    Mode = proplists:get_value(node(), Nodes),
+    ok = application:set_env(rabbit, cluster_nodes, {NodeNames, Mode}).
 
 stop_rabbit() ->
     case application:stop(rabbit) of

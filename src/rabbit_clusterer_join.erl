@@ -97,7 +97,7 @@ event({comms, {Replies, BadNodes}}, State = #state { state   = awaiting_status,
                     %%
                     %% If ReadyNodes exists, we should just reset and
                     %% join into that, and ignore anything about
-                    %% gospel: it's possible that gosple is {node,
+                    %% gospel: it's possible that gospel is {node,
                     %% node()} but that, in combination with
                     %% ReadyNodes, suggests that the cluster
                     %% previously existed with an older version of
@@ -164,9 +164,10 @@ event({new_config, ConfigRemote, Node}, State = #state { config = Config }) ->
 request_status(State = #state { comms   = Comms,
                                 node_id = NodeID,
                                 config  = #config { nodes = Nodes } }) ->
-    NodesNotUs = [ N || {N, _Mode} <- Nodes, N =/= node() ],
+    MyNode = node(),
+    NodesNotUs = [ N || {N, _Mode} <- Nodes, N =/= MyNode ],
     ok = rabbit_clusterer_comms:multi_call(
-           NodesNotUs, {request_status, node(), NodeID}, Comms),
+           NodesNotUs, {request_status, MyNode, NodeID}, Comms),
     {continue, State #state { state = awaiting_status }}.
 
 delayed_request_status(State) ->
@@ -188,12 +189,19 @@ cluster_with_nodes(#config { nodes = Nodes }) ->
     ok = rabbit_clusterer_utils:configure_cluster(Nodes).
 
 maybe_form_new_cluster(#config { nodes = Nodes, gospel = Gospel }) ->
+    %% Is it necessary to limit the election of a leader to disc
+    %% nodes? No: we're only here when we have everyone in the cluster
+    %% joining, so we know we wouldn't be creating a RAM-node-only
+    %% cluster. Given that we enforce that the cluster config must
+    %% have at least one disc node in it anyway, it's safe to allow a
+    %% RAM node to lead. However, I'm not 100% sure that the rest of
+    %% rabbit/mnesia likes that, so we leave in the 'disc'
+    %% filter. This might get reviewed in QA.
     MyNode = node(),
     {Wipe, Leader} =
         case Gospel of
             {node, Node} -> {Node =/= MyNode, Node};
-            reset -> [Leader1 | _] = lists:usort([N || {N, disc} <- Nodes]),
-                     {true, Leader1}
+            reset        -> {true, lists:min([N || {N, disc} <- Nodes])}
         end,
     case Leader of
         MyNode ->
@@ -203,10 +211,8 @@ maybe_form_new_cluster(#config { nodes = Nodes, gospel = Gospel }) ->
                      false ->
                          rabbit_clusterer_utils:eliminate_mnesia_dependencies()
                  end,
-            ok = case node() of
-                     Leader -> rabbit_clusterer_utils:configure_cluster([]);
-                     _      -> rabbit_clusterer_utils:configure_cluster(Nodes)
-                 end,
+            ok = rabbit_clusterer_utils:configure_cluster(
+                   [proplists:lookup(MyNode, Nodes)]),
             true;
         _ ->
             false

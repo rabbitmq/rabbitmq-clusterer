@@ -126,13 +126,10 @@ handle_call({request_status, _Node, _NodeID}, _From,
     %% us in later on anyway.
     {reply, preboot, State};
 handle_call({request_status, NewNode, NewNodeID}, From,
-            State = #state { transitioner_state = TState,
-                             status    = Status = {transitioner, TModule} }) ->
+            State = #state { status = Status = {transitioner, _} }) ->
     Fun = fun (Config) -> gen_server:reply(From, {Config, Status}), ok end,
-    {noreply,
-     process_transitioner_response(
-       TModule:event({request_config, NewNode, NewNodeID, Fun}, TState), State)
-    };
+    {noreply, transitioner_event(
+                {request_config, NewNode, NewNodeID, Fun}, State)};
 handle_call({request_status, NewNode, NewNodeID}, _From,
             State = #state { node_id = NodeID,
                              config  = Config,
@@ -152,13 +149,10 @@ handle_call(Msg, From, State) ->
 %% Cast
 %%----------------
 handle_cast({comms, Comms, Result},
-            State = #state { comms              = Comms,
-                             status             = {transitioner, TModule},
-                             transitioner_state = TState }) ->
+            State = #state { comms = Comms, status = {transitioner, _} }) ->
     %% This is a response from the comms process coming back to the
     %% transitioner
-    {noreply, process_transitioner_response(
-                TModule:event({comms, Result}, TState), State)};
+    {noreply, transitioner_event({comms, Result}, State)};
 handle_cast({comms, _Comms, _Result}, State) ->
     %% Ignore it - either we're not transitioning, or it's from an old
     %% comms pid.
@@ -179,17 +173,14 @@ handle_cast({new_config, _ConfigRemote, Node},
     %% deal with the list.
     {noreply, State #state { nodes = [Node | Nodes] }};
 handle_cast({new_config, ConfigRemote, Node},
-            State = #state { status = {transitioner, TModule},
-                             transitioner_state = TState }) ->
+            State = #state { status = {transitioner, _} }) ->
     %% We have to deal with this case because we could have the
     %% situation where we are blocked in the transitioner waiting for
     %% another node to come up but there really is a younger config
     %% that has become available that we should be transitioning
     %% to. If we don't deal with this we can potentially have a
     %% deadlock.
-    {noreply,
-     process_transitioner_response(
-       TModule:event({new_config, ConfigRemote, Node}, TState), State)};
+    {noreply, transitioner_event({new_config, ConfigRemote, Node}, State)};
 handle_cast({new_config, ConfigRemote, Node},
             State = #state { config = Config }) ->
     %% Status is either running on pending_shutdown. In both cases, we
@@ -239,13 +230,11 @@ handle_info({shutdown, _Ref}, State) ->
     {noreply, State};
 
 handle_info({transitioner_delay, Event},
-            State = #state { status             = {transitioner, TModule},
-                             transitioner_state = TState }) ->
+            State = #state { status = {transitioner, _} }) ->
     %% A transitioner wanted some sort of timer based callback. Note
     %% it is the transitioner's responsibility to filter out
     %% invalid/outdated etc delayed events.
-    {noreply,
-     process_transitioner_response(TModule:event(Event, TState), State)};
+    {noreply, transitioner_event(Event, State)};
 handle_info({transitioner_delay, _Event}, State) ->
     {noreply, State};
 
@@ -490,11 +479,14 @@ begin_transition(NewConfig, State = #state { node_id = NodeID,
             end
     end.
 
+transitioner_event(Event, State = #state { status = {transitioner, TModule},
+                                           transitioner_state = TState }) ->
+    process_transitioner_response(TModule:event(Event, TState), State).
+
 process_transitioner_response({continue, TState}, State) ->
     State #state { transitioner_state = TState };
 process_transitioner_response({SuccessOrShutdown, ConfigNew},
-                              State = #state { node_id = NodeID,
-                                               config  = ConfigOld })
+                              State = #state { node_id = NodeID })
   when SuccessOrShutdown =:= success orelse SuccessOrShutdown =:= shutdown ->
     %% Both success and shutdown are treated the same as they're exit
     %% nodes from the states of the transitioners. If we've had a
@@ -556,10 +548,9 @@ update_monitoring(
   State = #state { config      = ConfigNew = #config { nodes = NodesNew },
                    nodes       = NodesOld,
                    alive_mrefs = AliveOld }) ->
-    MyNode = node(),
     ok = send_new_config(ConfigNew, NodesOld),
     [demonitor(MRef) || MRef <- AliveOld],
-    NodeNamesNew = [N || {N, _} <- NodesNew, N =/= MyNode],
+    NodeNamesNew = [N || {N, _} <- NodesNew, N =/= node()],
     AliveNew = [monitor(process, {?SERVER, N}) || N <- NodeNamesNew],
     State #state { nodes          = NodeNamesNew,
                    alive_mrefs    = AliveNew,
