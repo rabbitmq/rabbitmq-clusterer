@@ -166,17 +166,14 @@ event({comms, {Replies, BadNodes}}, State = #state { status  = awaiting_status,
                             BadNodesSet = ordsets:from_list(BadNodes),
                             case ordsets:is_disjoint(DiscRunningSet, BadNodesSet) of
                                 true ->
-                                    AliveDiscRunningSet =
-                                        ordsets:subtract(DiscRunningSet, BadNodesSet),
                                     %% Everyone we depend on is alive in some form.
                                     JoiningSet =
-                                        case dict:find(rabbit_clusterer_join, StatusDict) of
+                                        case dict:find({transitioner, rabbit_clusterer_join}, StatusDict) of
                                             {ok, List} -> ordsets:from_list(List);
                                             error      -> ordsets:new()
                                         end,
                                     NotJoiningSet = ordsets:subtract(
-                                                      AliveDiscRunningSet,
-                                                      JoiningSet),
+                                                      DiscRunningSet, JoiningSet),
                                     case ordsets:size(NotJoiningSet) of
                                         0 ->
                                             %% We win!
