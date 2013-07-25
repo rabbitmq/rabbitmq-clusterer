@@ -150,11 +150,22 @@ event({request_config, NewNode, NewNodeID, Fun},
         rabbit_clusterer_utils:add_node_id(NewNode, NewNodeID, NodeID, Config),
     ok = Fun(Config1),
     {continue, State #state { config = Config1 }};
-event({new_config, ConfigRemote, Node}, State = #state { config = Config }) ->
+event({new_config, ConfigRemote, Node},
+      State = #state { config = Config = #config { nodes = Nodes } }) ->
     case rabbit_clusterer_utils:compare_configs(ConfigRemote, Config) of
         lt -> ok = rabbit_clusterer_coordinator:send_new_config(Config, Node),
               {continue, State};
-        gt -> {config_changed, ConfigRemote};
+        gt -> %% Here we also need to make sure we forward this to
+              %% anyone we're currently trying to cluster with: the
+              %% fact that we're about to change which config we're
+              %% using clearly invalidates our current config and it's
+              %% not just us using this config. We send from here and
+              %% not comms as we're about to kill off comms anyway so
+              %% there's no ordering issues to consider.
+              ok = rabbit_clusterer_coordinator:send_new_config(
+                     ConfigRemote,
+                     [N || {N, _} <- Nodes, N =/= node(), N =/= Node ]),
+              {config_changed, ConfigRemote};
         _  -> %% ignore
               {continue, State}
     end.

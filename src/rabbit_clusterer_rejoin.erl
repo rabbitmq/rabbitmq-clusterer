@@ -6,10 +6,75 @@
 
 -include("rabbit_clusterer.hrl").
 
-%% In this transitioner we want to avoid the timeout on
-%% mnesia:wait_for_tables so we need to figure out who we depend on to
-%% rejoin and then wait for them to be running. The only substantial
-%% complication comes from if some node we're dependent on gets reset.
+%% Concerns for this transitioner:
+%%
+%% - Cluster could have grown or shrunk since we last saw it.
+%%
+%% - We want to avoid the timeout on mnesia:wait_for_tables, so we
+%% need to manage the "dependencies" ourselves.
+%%
+%% - The disk-nodes-running-when-we-last-shutdown result can be
+%% satisfied by any one of those nodes managing to start up. It's
+%% certainly not that we depend on *all* of the nodes in there, mearly
+%% *any*.
+%%
+%% - We try to shrink that set as much as possible. If we can get it
+%% down to the empty set then we can consider ourselves the "winner"
+%% and can start up without waiting for anyone else.
+%%
+%% - We can remove a node N from that set if:
+%%   a) We can show that N (transitively) depends on us (i.e. we have
+%%     a cycle) and its other dependencies we can also disregard.
+%%   b) We can show that N is currently joining and not
+%%     rejoining. Thus it has been reset and we're witnessing hostname
+%%     reuse. In this case we must ignore N: if we don't then there's
+%%     a risk all the rejoining nodes decide to depend on N, and N (as
+%%     it's joining, not rejoining) waits for everyone else. Thus
+%%     deadlock.
+%%
+%% It's tempting to consider a generalisation of (b) where if we see
+%% that we depend on a node that is currently rejoining but has a
+%% different node id than what we were expecting then it must have
+%% been reset since we last saw it and so we shouldn't depend on
+%% it. However, this is wrong: the fact that it's rejoining shows that
+%% it managed to join (and then be stopped) the cluster after we last
+%% saw it. Thus it still has more up-to-date information than us, so
+%% we should still depend on it. In this case it should also follow
+%% that (a) won't hold for such an N either.
+%%
+%% The problem with the cluster shrinking is that we have the
+%% possibility of multiple leaders. If A and B both depend on C and
+%% the cluster shrinks, losing C, then A and B could both come up,
+%% learn of the loss of C and thus declare themselves the leader. It
+%% would be possible for both A and B to have *only* C in their
+%% initial set of disk-nodes-running-when-we-last-shutdown (in
+%% general, the act of adding a node to a cluster and all the nodes
+%% rewriting their nodes-running file is non-atomic so we need to be
+%% as accomodating as possible here) so neither would feel necessary
+%% to wait for each other. Consequently, we have to have some locking
+%% to make sure that we don't have multiple leaders (which could cause
+%% an mnesia fail-to-merge issue). The rule about locking is that you
+%% have to take locks in the same order, and then you can't
+%% deadlock. So, we sort all the nodes from the cluster config, and
+%% grab locks in order. If a node is down, that's treated as being ok
+%% (i.e. you don't abort). You also have to lock yourself. Only when
+%% you have all the locks can you actually boot.
+%%
+%% Unsurprisingly, this gets a bit more complex. We lock using the
+%% comms Pid, and the lock monitors said Pid. This is elegant in that
+%% if A locks A and B, and then a new cluster config is applied to A
+%% then the comms will be restarted, so the old pid will die, so the
+%% locks are released. Similarly, on success, the comms will be
+%% stopped, so the lock releases. This is simple and nice. Where it
+%% gets slightly more complex is what happens if A locks A and B and
+%% then a new config is applied to B. If that were to happen then that
+%% would clearly invalidate the config that A is also using. B will
+%% forward new config to A too. B and A will both restart their comms,
+%% in any other. If B goes first, we don't want B to be held up, so
+%% B's lock is actually managed by its comms (i.e. comms both takes
+%% the lock and owns the lock). So when B restarts its comms, it's
+%% unlocking itself too.
+
 init(Config = #config { nodes = Nodes }, NodeID, Comms) ->
     MyNode = node(),
     case Nodes of
