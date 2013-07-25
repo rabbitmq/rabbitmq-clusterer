@@ -240,6 +240,8 @@ compare_configs(#config { version = VA },
 %% Yes, melisma is a surprising choice. But 'compatible' or 'upgrade'
 %% isn't right either. I like the idea of a cluster continuing to
 %% slide from one config to another, hence melisma.
+detect_melisma(Config, Config) ->
+    true;
 detect_melisma(#config { gospel = reset }, _OldConfig) ->
     false;
 detect_melisma(#config {}, undefined) ->

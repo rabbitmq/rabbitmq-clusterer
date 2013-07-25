@@ -98,7 +98,10 @@ handle_call(await_coordination, From,
                 {NodeID1, NewConfig1, undefined};
             {undefined, {NodeID1, OldConfig1}} ->
                 {NodeID1, OldConfig1, OldConfig1};
-            {{NodeID1, NewConfig1}, {NodeID1, OldConfig1}} ->
+            {{_NodeID, NewConfig1}, {NodeID1, OldConfig1}} ->
+                %% External is user specified and they've provided a
+                %% config but it won't contain a NodeID, so we'll have
+                %% generated one. Thus discard the new one.
                 case rabbit_clusterer_utils:compare_configs(NewConfig1,
                                                             OldConfig1) of
                     gt ->
@@ -207,6 +210,18 @@ handle_cast(ready_to_cluster, State = #state { status = booting }) ->
     %% booting so it should be safe to assert we can only receive
     %% ready_to_cluster when in booting.
     {noreply, set_status(ready, State)};
+
+handle_cast({lock, Locker}, State = #state { comms = undefined }) ->
+    gen_server:cast(Locker, {lock_rejected, node()}),
+    {noreply, State};
+handle_cast({lock, Locker}, State = #state { comms = Comms }) ->
+    ok = rabbit_clusterer_comms:lock(Locker, Comms),
+    {noreply, State};
+handle_cast({unlock, _Locker}, State = #state { comms = undefined }) ->
+    {noreply, State};
+handle_cast({unlock, Locker}, State = #state { comms = Comms }) ->
+    ok = rabbit_clusterer_comms:unlock(Locker, Comms),
+    {noreply, State};
 
 %% anything else kills us
 handle_cast(Msg, State) ->

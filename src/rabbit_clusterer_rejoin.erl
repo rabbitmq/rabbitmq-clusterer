@@ -42,6 +42,12 @@
 %% we should still depend on it. In this case it should also follow
 %% that (a) won't hold for such an N either.
 %%
+%% Both (a) and (b) require that we can communicate with N. Thus if we
+%% have a dependency on a node we can't contact then we can't
+%% eliminate it as a dependency, so we just have to wait for either
+%% said node to come up, or for someone else to determine they can
+%% start.
+%%
 %% The problem with the cluster shrinking is that we have the
 %% possibility of multiple leaders. If A and B both depend on C and
 %% the cluster shrinks, losing C, then A and B could both come up,
@@ -58,7 +64,11 @@
 %% deadlock. So, we sort all the nodes from the cluster config, and
 %% grab locks in order. If a node is down, that's treated as being ok
 %% (i.e. you don't abort). You also have to lock yourself. Only when
-%% you have all the locks can you actually boot.
+%% you have all the locks can you actually boot. Why do we lock
+%% everyone? Because we can't agree on who to lock. If you tried to
+%% pick someone (eg minimum node) then you'd find that could change as
+%% other nodes come up or go down, so it's not stable. So lock
+%% everyone.
 %%
 %% Unsurprisingly, this gets a bit more complex. We lock using the
 %% comms Pid, and the lock monitors said Pid. This is elegant in that
@@ -139,62 +149,41 @@ event({comms, {Replies, BadNodes}}, State = #state { status  = awaiting_status,
                             %% for someone else
                             delayed_request_status(State1);
                         true ->
-                            {_All, Disc, Running} = rabbit_node_monitor:read_cluster_status(),
-                            DiscRunning = ordsets:to_list(
-                                            ordsets:intersection(
-                                              ordsets:from_list(Disc),
-                                              ordsets:from_list(Running))) -- [MyNode],
-                            %% We want to shrink DiscRunning as much
-                            %% as possible. It's not so much that we
-                            %% depend on *all* the elements in
-                            %% DiscRunning, it's more that we depend
-                            %% on *any* of those elements. If we can
-                            %% get it down to [] then we can declare
-                            %% ourselves the leader and start up. If
-                            %% we can't, we have to wait.
-                            %%
-                            %% There are two possible ways to remove
-                            %% a given node N from DiscRunning:
-                            %%
-                            %% a) Show that N (transitively) depends
-                            %%   on us (i.e. we have a cycle) (and
-                            %%   other nodes that we can eliminate)
-                            %%   and that MyNode < N (i.e. we can only
-                            %%   have one winner of this cycle)
-                            %%
-                            %% b) Show that N is currently joining
-                            %%   (instead of rejoining). If it's
-                            %%   joining then it's been reset, so we
-                            %%   can't possibly depend on it.
-                            %%
-                            %% Both of these require that we either
-                            %% can or have communicated with the nodes
-                            %% in DiscRunning. Therefore if any of the
-                            %% nodes in DiscRunning are also in
-                            %% BadNodes then there's no point doing
-                            %% any further work right now.
-                            Joining = case dict:find(rabbit_clusterer_join, StatusDict) of
-                                          {ok, List} -> List;
-                                          error      -> []
-                                      end,
-                            DiscRunning1 = DiscRunning -- Joining,
-                            DiscRunningAllAlive = length(DiscRunning1) =:=
-                                length(DiscRunning1 -- BadNodes),
-                            case DiscRunning1 of
-                                [] ->
-                                    %% We have a race here. There
-                                    %% could be multiple nodes both of
-                                    %% which "only" depend on nodes
-                                    %% that are currently joining
-                                    %% (i.e. they've been reset). This
-                                    %% code, as it stands, would start
-                                    %% both up as the leader.
-                                    ok = rabbit_clusterer_utils:eliminate_mnesia_dependencies(),
-                                    {success, Youngest};
-                                [_|_] when DiscRunningAllAlive ->
-                                    %% Need to do cycle detection
-                                    ko;
-                                _ ->
+                            {_All, Disc, Running} =
+                                rabbit_node_monitor:read_cluster_status(),
+                            %% 1. Reduce Disc to those that are still
+                            %% in the config:
+                            NodeNames = rabbit_clusterer_utils:nodenames(Nodes),
+                            DiscSet = ordsets:intersection(
+                                        ordsets:from_list(NodeNames),
+                                        ordsets:from_list(Disc)),
+                            %% Intersect with Running and remove MyNode
+                            DiscRunningSet =
+                                ordsets:del_element(
+                                  MyNode,
+                                  ordsets:intersection(
+                                    DiscSet, ordsets:from_list(Running))),
+                            BadNodesSet = ordsets:from_list(BadNodes),
+                            case ordsets:is_disjoint(DiscRunningSet, BadNodesSet) of
+                                true ->
+                                    AliveDiscRunningSet =
+                                        ordsets:subtract(DiscRunningSet, BadNodesSet),
+                                    %% Everyone we depend on is alive in some form.
+                                    JoiningSet =
+                                        case dict:find(rabbit_clusterer_join, StatusDict) of
+                                            {ok, List} -> ordsets:from_list(List);
+                                            error      -> ordsets:new()
+                                        end,
+                                    NotJoiningSet = ordsets:subtract(
+                                                      AliveDiscRunningSet,
+                                                      JoiningSet),
+                                    case ordsets:size(NotJoiningSet) of
+                                        0 ->
+                                            %% We win!
+                                            ok = rabbit_clusterer_comms:lock_nodes(NodeNames, Comms),
+                                            {continue, State1 #state { status = awaiting_lock }}
+                                    end;
+                                false ->
                                     %% We might depend on a node in
                                     %% BadNodes. We must wait for it
                                     %% to appear.
@@ -205,6 +194,13 @@ event({comms, {Replies, BadNodes}}, State = #state { status  = awaiting_status,
         _ ->
             {config_changed, Youngest}
     end;
+event({comms, lock_rejected}, State = #state { status = awaiting_lock }) ->
+    %% Oh, well let's just wait and try again. Something must have
+    %% changed.
+    delayed_request_status(State);
+event({comms, lock_ok}, #state { status = awaiting_lock, config = Config }) ->
+    ok = rabbit_clusterer_utils:eliminate_mnesia_dependencies(),
+    {success, Config};
 event({delayed_request_status, Ref},
       State = #state { status = {delayed_request_status, Ref} }) ->
     request_status(State);
@@ -219,11 +215,15 @@ event({request_config, NewNode, NewNodeID, Fun},
         rabbit_clusterer_utils:add_node_id(NewNode, NewNodeID, NodeID, Config),
     ok = Fun(Config1),
     {continue, State #state { config = Config1 }};
-event({new_config, ConfigRemote, Node}, State = #state { config = Config }) ->
+event({new_config, ConfigRemote, Node},
+      State = #state { config = Config = #config { nodes = Nodes } }) ->
     case rabbit_clusterer_utils:compare_configs(ConfigRemote, Config) of
         lt -> ok = rabbit_clusterer_coordinator:send_new_config(Config, Node),
               {continue, State};
-        gt -> {config_changed, ConfigRemote};
+        gt -> ok = rabbit_clusterer_coordinator:send_new_config(
+                     ConfigRemote,
+                     [N || {N, _} <- Nodes, N =/= node(), N =/= Node ]),
+              {config_changed, ConfigRemote};
         _  -> %% ignore
               {continue, State}
     end.
