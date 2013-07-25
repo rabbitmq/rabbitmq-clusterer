@@ -42,7 +42,6 @@ required_keys() ->
 optional_keys() ->
     NodeID = create_node_id(),
     [{map_node_id, orddict:from_list([{node(), NodeID}])},
-     {map_id_node, orddict:from_list([{NodeID, node()}])},
      {node_id, NodeID}].
 
 proplist_config_to_record(Proplist) when is_list(Proplist) ->
@@ -148,8 +147,6 @@ validate_config_key(nodes, Nodes, _Config) ->
     {error,
      rabbit_misc:format("Require nodes to be a list of nodes: ~p", [Nodes])};
 validate_config_key(map_node_id, _Orddict, _Config) ->
-    ok;
-validate_config_key(map_id_node, _Orddict, _Config) ->
     ok.
 
 normalise_nodes(Nodes) when is_list(Nodes) ->
@@ -160,32 +157,23 @@ normalise_nodes(Nodes) when is_list(Nodes) ->
                     ({Node, ram} = E)  when is_atom(Node) -> E
                 end, Nodes)).
 
-%% We just regenerate map_id_node rather than trying to tidy both to
-%% match. Easy to ensure correctness and for the small maps we're
-%% dealing with it'll be just as fast.
 tidy_node_id_maps(NodeID, Config = #config { nodes = Nodes,
                                              map_node_id = NodeToID }) ->
     %% We always remove ourself from the maps to take into account our
-    %% own node_id has changed (and then add ourself back in).
+    %% own node_id may have changed (and then add ourself back in).
     MyNode = node(),
     NodeNames = [N || {N, _} <- Nodes, N =/= MyNode],
     NodesToRemove = orddict:fetch_keys(NodeToID) -- NodeNames,
     NodeToID1 = lists:foldr(fun orddict:erase/2, NodeToID, NodesToRemove),
-    %% There's a possibility that we need to add in the mapping for
-    %% the local node (consider that a previous config didn't include
-    %% ourself, but a new one does).
-    NodeToID2 = case proplists:is_defined(node(), Nodes) of
-                    true  -> orddict:store(node(), NodeID, NodeToID1);
+    %% Add ourselves in. In addition to the above, consider that we
+    %% could be new to the cluster and so there was never a mapping
+    %% for us anyway.
+    NodeToID2 = case proplists:is_defined(MyNode, Nodes) of
+                    true  -> orddict:store(MyNode, NodeID, NodeToID1);
                     false -> NodeToID1
                 end,
-    IDToNode = orddict:fold(fun (Node, ID, IDToNodeN) ->
-                                    orddict:store(ID, Node, IDToNodeN)
-                            end, orddict:new(), NodeToID2),
-    Config #config { map_node_id = NodeToID2, map_id_node = IDToNode }.
+    Config #config { map_node_id = NodeToID2 }.
 
-%% We also rely on the rebuilding in the above func in here. High
-%% coupling, but the funcs are side by side and it keeps the code
-%% simpler.
 merge_node_id_maps(NodeID,
                    ConfigDest = #config { map_node_id = NodeToIDDest },
                    _ConfigSrc = #config { map_node_id = NodeToIDSrc }) ->
@@ -201,20 +189,20 @@ merge_configs(_NodeID, Config, undefined) ->
 %% We deliberately don't have either of the other cases.
 
 add_node_id(NewNode, NewNodeID, NodeID,
-            Config = #config { map_node_id = NodeToID,
-                               map_id_node = IDToNode }) ->
-    {Changed, IDToNode1} =
+            Config = #config { map_node_id = NodeToID }) ->
+    %% Note that if NewNode isn't in Config then tidy_node_id_maps
+    %% will do the right thing, and also that Changed will always be
+    %% false.
+    Changed =
         case orddict:find(NewNode, NodeToID) of
-            error            -> {false, IDToNode};
-            {ok, NewNodeID}  -> {false, IDToNode};
-            {ok, NewNodeID1} -> {true,  orddict:erase(NewNodeID1, IDToNode)}
+            error            -> false;
+            {ok, NewNodeID}  -> false;
+            {ok, _NewNodeID} -> true
         end,
     {Changed, tidy_node_id_maps(
                 NodeID, Config #config {
                           map_node_id =
-                              orddict:store(NewNode, NewNodeID, NodeToID),
-                          map_id_node =
-                              orddict:store(NewNodeID, NewNode, IDToNode1) })}.
+                              orddict:store(NewNode, NewNodeID, NodeToID) })}.
 
 record_config_to_proplist(NodeID, Config = #config {}) ->
     Fields = record_info(fields, config),
