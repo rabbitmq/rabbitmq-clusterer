@@ -143,6 +143,13 @@ handle_call({request_status, NewNode, NewNodeID}, _From,
     State1 = reschedule_shutdown(State #state { config = Config1 }),
     {reply, {Config1, Status}, State1};
 
+handle_call({{transitioner, _TModule} = Status, Msg}, From,
+            State = #state { status = Status }) ->
+    Fun = fun (Result) -> gen_server:reply(From, Result), ok end,
+    {noreply, transitioner_event({Msg, Fun}, State)};
+handle_call({{transitioner, _TModule}, _Msg}, _From, State) ->
+    {reply, invalid, State};
+
 %% anything else kills us
 handle_call(Msg, From, State) ->
     {stop, {unhandled_call, Msg, From}, State}.
@@ -487,9 +494,10 @@ begin_transition(NewConfig, State = #state { node_id = NodeID,
                                 fresh_comms(State #state { alive_mrefs = [],
                                                            dead        = [],
                                                            nodes       = [] }),
+                            State2 = set_status(TModule, State1),
                             process_transitioner_response(
                               TModule:init(NewConfig1, NodeID, Comms),
-                              set_status(TModule, State1))
+                              State2)
                     end
             end
     end.

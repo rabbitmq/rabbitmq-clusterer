@@ -11,13 +11,14 @@ init(Config = #config { nodes = Nodes,
     MyNode = node(),
     case Nodes of
         [{MyNode, disc}] ->
-            ok = case Gospel of
-                     reset ->
-                         rabbit_clusterer_utils:wipe_mnesia();
-                     {node, _Node} ->
-                         %% _utils:proplist_config_to_record ensures
-                         %% if we're here, _Node must be =:= node().
-                         rabbit_clusterer_utils:eliminate_mnesia_dependencies()
+            ok =
+                case Gospel of
+                    reset ->
+                        rabbit_clusterer_utils:wipe_mnesia();
+                    {node, _Node} ->
+                        %% _utils:proplist_config_to_record ensures if
+                        %% we're here, _Node must be =:= node().
+                        rabbit_clusterer_utils:eliminate_mnesia_dependencies([])
                  end,
             {success, Config};
         [_|_] ->
@@ -73,15 +74,15 @@ event({comms, {Replies, BadNodes}}, State = #state { status  = awaiting_status,
             %% We have the most up to date config. But we must use
             %% Youngest from here on as it has the updated
             %% node_id_maps.
-            State1 = State #state { config = Youngest },
             case OlderThanUs of
                 [_|_] ->
                     %% Update nodes which are older than us. In
                     %% reality they're likely to receive lots of the
                     %% same update from everyone else, but meh,
                     %% they'll just have to cope.
-                    update_remote_nodes(OlderThanUs, State1);
+                    update_remote_nodes(OlderThanUs, Youngest, State);
                 [] ->
+                    State1 = State #state { config = Youngest },
                     %% Everyone here has the same config, thus
                     %% Statuses can be trusted as the statuses of all
                     %% nodes trying to achieve *this* config and not
@@ -186,7 +187,7 @@ delayed_request_status(State) ->
     {sleep, 1000, {delayed_request_status, Ref},
      State #state { status = {delayed_request_status, Ref} }}.
 
-update_remote_nodes(Nodes, State = #state { config = Config, comms = Comms }) ->
+update_remote_nodes(Nodes, Config, State = #state { comms = Comms }) ->
     %% Assumption here is Nodes does not contain node(). We
     %% deliberately do this cast out of Comms to preserve ordering of
     %% messages.
@@ -215,12 +216,13 @@ maybe_form_new_cluster(#config { nodes = Nodes, gospel = Gospel }) ->
         end,
     case Leader of
         MyNode ->
-            ok = case Wipe of
-                     true ->
-                         rabbit_clusterer_utils:wipe_mnesia();
-                     false ->
-                         rabbit_clusterer_utils:eliminate_mnesia_dependencies()
-                 end,
+            ok =
+                case Wipe of
+                    true ->
+                        rabbit_clusterer_utils:wipe_mnesia();
+                    false ->
+                        rabbit_clusterer_utils:eliminate_mnesia_dependencies([])
+                end,
             ok = rabbit_clusterer_utils:configure_cluster(
                    [proplists:lookup(MyNode, Nodes)]),
             true;

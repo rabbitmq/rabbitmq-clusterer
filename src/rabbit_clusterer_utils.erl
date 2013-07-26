@@ -9,7 +9,7 @@
          wipe_mnesia/0,
          merge_configs/3,
          add_node_id/4,
-         eliminate_mnesia_dependencies/0,
+         eliminate_mnesia_dependencies/1,
          configure_cluster/1,
          stop_mnesia/0,
          stop_rabbit/0,
@@ -295,12 +295,15 @@ stop_mnesia() ->
 ensure_start_mnesia() ->
     ok = application:ensure_started(mnesia).
 
-eliminate_mnesia_dependencies() ->
+eliminate_mnesia_dependencies(NodesToDelete) ->
     %% rabbit_table:force_load() does not error if
     %% mnesia:force_load_table errors(!) Thus we can safely run this
     %% even in clean state - i.e. one where neither the schema nor any
     %% tables actually exist.
     ok = rabbit_table:force_load(),
+    %% del_table_copy has to be done after the force_load but is also
+    %% usefully idempotent.
+    [{atomic,ok} = mnesia:del_table_copy(schema, N) || N <- NodesToDelete],
     ok = rabbit_node_monitor:reset_cluster_status().
 
 configure_cluster(Nodes = [_|_]) ->
