@@ -89,6 +89,7 @@ init(Config = #config { nodes = Nodes }, NodeID, Comms) ->
     MyNode = node(),
     case Nodes of
         [{MyNode, disc}] ->
+            ok = rabbit_clusterer_utils:eliminate_mnesia_dependencies([]),
             {success, Config};
         [_|_] ->
             request_status(#state { config   = Config,

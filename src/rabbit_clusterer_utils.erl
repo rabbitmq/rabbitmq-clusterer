@@ -3,21 +3,23 @@
 -include("rabbit_clusterer.hrl").
 
 -export([default_config/0,
-         proplist_config_to_record/1,
          record_config_to_proplist/2,
-         compare_configs/2,
-         wipe_mnesia/0,
+         proplist_config_to_record/1,
          merge_configs/3,
          add_node_id/4,
-         eliminate_mnesia_dependencies/1,
-         configure_cluster/1,
-         stop_mnesia/0,
-         stop_rabbit/0,
-         ensure_start_mnesia/0,
+         compare_configs/2,
          detect_melisma/2,
          nodenames/1,
          node_in_config/2,
-         node_in_config/1
+         node_in_config/1,
+         stop_mnesia/0,
+         ensure_start_mnesia/0,
+         stop_rabbit/0,
+         start_rabbit_async/0,
+         boot_rabbit_async/0,
+         wipe_mnesia/0,
+         eliminate_mnesia_dependencies/1,
+         configure_cluster/1
         ]).
 
 
@@ -43,6 +45,15 @@ optional_keys() ->
     NodeID = create_node_id(),
     [{map_node_id, orddict:from_list([{node(), NodeID}])},
      {node_id, NodeID}].
+
+record_config_to_proplist(NodeID, Config = #config {}) ->
+    Fields = record_info(fields, config),
+    {_Pos, Proplist} =
+        lists:foldl(
+          fun (FieldName, {Pos, ProplistN}) ->
+                  {Pos + 1, [{FieldName, element(Pos, Config)} | ProplistN]}
+          end, {2, []}, Fields),
+    [{node_id, NodeID} | Proplist].
 
 proplist_config_to_record(Proplist) when is_list(Proplist) ->
     ok = check_required_keys(Proplist),
@@ -204,15 +215,6 @@ add_node_id(NewNode, NewNodeID, NodeID,
                           map_node_id =
                               orddict:store(NewNode, NewNodeID, NodeToID) })}.
 
-record_config_to_proplist(NodeID, Config = #config {}) ->
-    Fields = record_info(fields, config),
-    {_Pos, Proplist} =
-        lists:foldl(
-          fun (FieldName, {Pos, ProplistN}) ->
-                  {Pos + 1, [{FieldName, element(Pos, Config)} | ProplistN]}
-          end, {2, []}, Fields),
-    [{node_id, NodeID} | Proplist].
-
 %% We very deliberately completely ignore the map_* fields here. They
 %% are not semantically important from the POV of config equivalence.
 compare_configs(#config { version = V, gospel = GA, nodes = NA,
@@ -248,13 +250,18 @@ detect_melisma(#config {}, undefined) ->
     false;
 detect_melisma(#config { gospel = {node, Node}, map_node_id = MapNodeIDNew },
                ConfigOld = #config { map_node_id = MapNodeIDOld }) ->
-    case node_in_config(Node, ConfigOld) of
-        true  -> case {orddict:find(Node, MapNodeIDNew),
-                       orddict:find(Node, MapNodeIDOld)} of
-                     {{ok, IdA}, {ok, IdB}} when IdA =/= IdB -> false;
-                     {_        , _        }                  -> true
-                 end;
-        false -> false
+    case node_in_config(node(), ConfigOld) of
+        true ->
+            case node_in_config(Node, ConfigOld) of
+                true  -> case {orddict:find(Node, MapNodeIDNew),
+                               orddict:find(Node, MapNodeIDOld)} of
+                             {{ok, IdA}, {ok, IdB}} when IdA =/= IdB -> false;
+                             {_        , _        }                  -> true
+                         end;
+                false -> false
+            end;
+        false ->
+            false
     end.
 
 node_in_config(Config) ->
@@ -273,6 +280,28 @@ nodenames(Nodes) when is_list(Nodes) ->
 %% Node ID and mnesia
 %%----------------------------------------------------------------------------
 
+stop_mnesia() ->
+    stopped = mnesia:stop(),
+    ok.
+
+ensure_start_mnesia() ->
+    ok = mnesia:start().
+
+stop_rabbit() ->
+    case application:stop(rabbit) of
+        ok                             -> ok;
+        {error, {not_started, rabbit}} -> ok;
+        Other                          -> Other
+    end.
+
+start_rabbit_async() ->
+    spawn(fun () -> ok = rabbit:start() end),
+    ok.
+
+boot_rabbit_async() ->
+    spawn(fun () -> ok = rabbit:boot() end),
+    ok.
+
 create_node_id() ->
     %% We can't use rabbit_guid here because it may not have been
     %% started at this stage. In reality, this isn't a massive
@@ -281,30 +310,34 @@ create_node_id() ->
     erlang:md5(term_to_binary({node(), make_ref()})).
 
 wipe_mnesia() ->
-    ok = stop_mnesia(),
-    ok = rabbit_mnesia:force_reset(),
-    ok = ensure_start_mnesia().
-
-stop_mnesia() ->
-    case application:stop(mnesia) of
-        ok                             -> ok;
-        {error, {not_started, mnesia}} -> ok;
-        Other                          -> Other
-    end.
-
-ensure_start_mnesia() ->
-    ok = application:ensure_started(mnesia).
+    %% With mnesia not running, we can't call
+    %% rabbit_mnesia:force_reset() because that tries to read in the
+    %% cluster status files from the mnesia directory which might not
+    %% exist if we're a completely virgin node. So we just do the rest
+    %% manually.
+    rabbit_log:info("Clusterer Resetting Rabbit~n"),
+    ok = rabbit_file:recursive_delete(
+           filelib:wildcard(rabbit_mnesia:dir() ++ "/*")),
+    ok = rabbit_node_monitor:reset_cluster_status(),
+    ok.
 
 eliminate_mnesia_dependencies(NodesToDelete) ->
+    ok = rabbit_mnesia:ensure_mnesia_dir(),
+    ok = ensure_start_mnesia(),
     %% rabbit_table:force_load() does not error if
     %% mnesia:force_load_table errors(!) Thus we can safely run this
     %% even in clean state - i.e. one where neither the schema nor any
     %% tables actually exist.
     ok = rabbit_table:force_load(),
+    case rabbit_table:is_present() of
+        true  -> ok = rabbit_table:wait_for_replicated();
+        false -> ok
+    end,
     %% del_table_copy has to be done after the force_load but is also
     %% usefully idempotent.
     [{atomic,ok} = mnesia:del_table_copy(schema, N) || N <- NodesToDelete],
-    ok = rabbit_node_monitor:reset_cluster_status().
+    ok = rabbit_node_monitor:reset_cluster_status(),
+    ok.
 
 configure_cluster(Nodes = [_|_]) ->
     case application:load(rabbit) of
@@ -314,10 +347,3 @@ configure_cluster(Nodes = [_|_]) ->
     NodeNames = nodenames(Nodes),
     Mode = proplists:get_value(node(), Nodes),
     ok = application:set_env(rabbit, cluster_nodes, {NodeNames, Mode}).
-
-stop_rabbit() ->
-    case application:stop(rabbit) of
-        ok                             -> ok;
-        {error, {not_started, rabbit}} -> ok;
-        Other                          -> Other
-    end.
