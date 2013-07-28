@@ -321,6 +321,7 @@ set_status(NewStatus, State = #state { status = OldStatus })
 set_status(pending_shutdown, State = #state { status = ready }) ->
     %% Even though we think we're ready, there might still be some
     %% rabbit boot actions going on...
+    error_logger:info_msg("Clusterer stopping Rabbit pending shutdown.~n"),
     ok = rabbit:await_startup(),
     ok = rabbit_clusterer_utils:stop_rabbit(),
     ok = rabbit_clusterer_utils:stop_mnesia(),
@@ -328,8 +329,13 @@ set_status(pending_shutdown, State = #state { status = ready }) ->
 set_status(pending_shutdown, State = #state { status = Status }) ->
     true = Status =/= booting, %% ASSERTION
     State #state { status = pending_shutdown };
-set_status(booting, State = #state { status = {transitioner, _},
-                                     booted = Booted }) ->
+set_status(booting, State = #state { status  = {transitioner, _},
+                                     config  = Config,
+                                     booted  = Booted,
+                                     node_id = NodeID }) ->
+    error_logger:info_msg(
+      "Clusterer booting Rabbit into cluster configuration:~n~p~n",
+      [rabbit_clusterer_utils:record_config_to_proplist(NodeID, Config)]),
     ok = rabbit_clusterer_utils:ensure_start_mnesia(),
     case Booted of
         true  -> ok = rabbit_clusterer_utils:start_rabbit_async();
@@ -337,8 +343,10 @@ set_status(booting, State = #state { status = {transitioner, _},
     end,
     State #state { status = booting, booted = true };
 set_status(ready, State = #state { status = booting }) ->
+    error_logger:info_msg("Cluster achieved and Rabbit running.~n"),
     update_monitoring(State #state { status = ready });
 set_status(shutdown, State = #state { status = pending_shutdown }) ->
+    error_logger:info_msg("Clusterer stopping node now.~n"),
     init:stop(),
     State #state { status = shutdown }.
 

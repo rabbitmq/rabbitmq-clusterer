@@ -315,7 +315,7 @@ wipe_mnesia() ->
     %% cluster status files from the mnesia directory which might not
     %% exist if we're a completely virgin node. So we just do the rest
     %% manually.
-    rabbit_log:info("Clusterer Resetting Rabbit~n"),
+    error_logger:info_msg("Clusterer Resetting Rabbit~n"),
     ok = rabbit_file:recursive_delete(
            filelib:wildcard(rabbit_mnesia:dir() ++ "/*")),
     ok = rabbit_node_monitor:reset_cluster_status(),
