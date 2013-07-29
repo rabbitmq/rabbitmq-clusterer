@@ -5,7 +5,8 @@
 -export([begin_coordination/0,
          rabbit_booted/0,
          send_new_config/2,
-         template_new_config/1]).
+         template_new_config/1,
+         apply_config/1]).
 
 -export([start_link/0, init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
@@ -53,6 +54,9 @@ send_new_config(Config, Nodes) when is_list(Nodes) ->
 
 template_new_config(Config) ->
     {new_config, Config, node()}.
+
+apply_config(Config) ->
+    gen_server:call(?SERVER, {apply_config, Config}, infinity).
 
 %%----------------------------------------------------------------------------
 
@@ -104,6 +108,36 @@ handle_call({{transitioner, _TModule} = Status, Msg}, From,
 handle_call({{transitioner, _TModule}, _Msg}, _From, State) ->
     {reply, invalid, State};
 
+handle_call({apply_config, Config}, From, State = #state { status = Status })
+  when Status =:= ready orelse Status =:= pending_shutdown ->
+    gen_server:reply(From, ok),
+    Config1 =
+        case Config of
+            #config {} ->
+                Config;
+            [{_,_}|_] ->
+                {_NodeID, Config2} =
+                    rabbit_clusterer_utils:proplist_config_to_record(Config),
+                Config2;
+            [_|_] ->
+                case rabbit_file:read_term_file(Config) of
+                    {error, enoent}  ->
+                        undefined;
+                    {ok, [Proplist]} ->
+                        rabbit_clusterer_utils:proplist_config_to_record(Proplist)
+                end;
+            _ ->
+                undefined
+        end,
+    State1 = case Config1 of
+                 #config {} -> begin_transition(Config1, State);
+                 _          -> State
+             end,
+    {noreply, State1};
+handle_call({apply_config, _Config}, _From,
+            State = #state { status = Status }) ->
+    {reply, {cannot_apply_config_currently, Status}, State};
+
 %% anything else kills us
 handle_call(Msg, From, State) ->
     {stop, {unhandled_call, Msg, From}, State}.
@@ -131,11 +165,11 @@ handle_cast(begin_coordination,
                 %% No config at all, 'join' the default.
                 {NodeID1, NewConfig1} = rabbit_clusterer_utils:default_config(),
                 {NodeID1, NewConfig1, undefined};
-            {{NodeID1, NewConfig1}, undefined} ->
-                {NodeID1, NewConfig1, undefined};
+            {{undefined, NewConfig1}, undefined} ->
+                {rabbit_clusterer_utils:create_node_id(), NewConfig1, undefined};
             {undefined, {NodeID1, OldConfig1}} ->
                 {NodeID1, OldConfig1, OldConfig1};
-            {{_NodeID, NewConfig1}, {NodeID1, OldConfig1}} ->
+            {{undefined, NewConfig1}, {NodeID1, OldConfig1}} ->
                 %% External is user specified and they've provided a
                 %% config but it won't contain a NodeID, so we'll have
                 %% generated one. Thus discard the new one.

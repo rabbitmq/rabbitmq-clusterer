@@ -3,6 +3,7 @@
 -include("rabbit_clusterer.hrl").
 
 -export([default_config/0,
+         create_node_id/0,
          record_config_to_proplist/2,
          proplist_config_to_record/1,
          merge_configs/3,
@@ -38,6 +39,13 @@ default_config() ->
        {shutdown_timeout, infinity}
       ]).
 
+create_node_id() ->
+    %% We can't use rabbit_guid here because it may not have been
+    %% started at this stage. In reality, this isn't a massive
+    %% problem: the fact we need to create a node_id implies that
+    %% we're a fresh node, so the guid serial will be 0 anyway.
+    erlang:md5(term_to_binary({node(), make_ref()})).
+
 required_keys() ->
     [nodes, version, gospel, shutdown_timeout].
 
@@ -67,7 +75,7 @@ proplist_config_to_record(Proplist) when is_list(Proplist) ->
     ok = validate_config(Config),
     Config1 = Config #config { nodes = normalise_nodes(Nodes) },
     NodeID = proplists:get_value(node_id, Proplist1),
-    true = is_binary(NodeID), %% ASSERTION
+    true = is_binary(NodeID) orelse NodeID =:= undefined, %% ASSERTION
     {NodeID, Config1}.
 
 check_required_keys(Proplist) ->
@@ -301,13 +309,6 @@ start_rabbit_async() ->
 boot_rabbit_async() ->
     spawn(fun () -> ok = rabbit:boot() end),
     ok.
-
-create_node_id() ->
-    %% We can't use rabbit_guid here because it may not have been
-    %% started at this stage. In reality, this isn't a massive
-    %% problem: the fact we need to create a node_id implies that
-    %% we're a fresh node, so the guid serial will be 0 anyway.
-    erlang:md5(term_to_binary({node(), make_ref()})).
 
 wipe_mnesia() ->
     %% With mnesia not running, we can't call
