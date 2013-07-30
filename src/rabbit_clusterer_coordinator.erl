@@ -93,15 +93,10 @@ handle_call({request_status, NewNode, NewNodeID}, From,
     Fun = fun (Config) -> gen_server:reply(From, {Config, Status}), ok end,
     {noreply, transitioner_event(
                 {request_config, NewNode, NewNodeID, Fun}, State)};
-handle_call({request_status, NewNode, NewNodeID}, _From,
-            State = #state { node_id = NodeID,
-                             config  = Config,
-                             status  = Status }) ->
+handle_call({request_status, _NewNode, _NewNodeID}, _From,
+            State = #state { config = Config, status = Status }) ->
     %% Status \in {pending_shutdown, booting, ready}
-    {_NodeIDChanged, Config1} =
-        rabbit_clusterer_utils:add_node_id(NewNode, NewNodeID, NodeID, Config),
-    State1 = reschedule_shutdown(State #state { config = Config1 }),
-    {reply, {Config1, Status}, State1};
+    {reply, {Config, Status}, reschedule_shutdown(State)};
 
 handle_call({{transitioner, _TModule} = Status, Msg}, From,
             State = #state { status = Status }) ->
@@ -488,6 +483,10 @@ begin_transition(NewConfig, State = #state { node_id = NodeID,
             case Action of
                 noop ->
                     ok = write_internal_config(NodeID, NewConfig1),
+                    error_logger:info_msg(
+                      "Clusterer seemlessly transitioned to new configuration:~n~p~n",
+                      [rabbit_clusterer_utils:record_config_to_proplist(
+                         NodeID, NewConfig1)]),
                     update_monitoring(
                       State #state { config = NewConfig1 });
                 reboot ->
