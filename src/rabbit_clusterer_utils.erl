@@ -6,6 +6,7 @@
          create_node_id/0,
          record_config_to_proplist/2,
          proplist_config_to_record/1,
+         validate_config/1,
          merge_configs/3,
          add_node_id/4,
          compare_configs/2,
@@ -32,11 +33,15 @@
 %% proplist as on disk but not in the #config record.
 
 default_config() ->
+    NodeID = create_node_id(),
+    MyNode = node(),
     proplist_config_to_record(
-      [{nodes, [{node(), disc}]},
-       {version, 0},
-       {gospel, {node, node()}},
-       {shutdown_timeout, infinity}
+      [{nodes,            [{MyNode, disc}]},
+       {version,          0},
+       {gospel,           {node, MyNode}},
+       {shutdown_timeout, infinity},
+       {node_id,          NodeID},
+       {map_node_id,      orddict:from_list([{MyNode, NodeID}])}
       ]).
 
 create_node_id() ->
@@ -50,9 +55,7 @@ required_keys() ->
     [nodes, version, gospel, shutdown_timeout].
 
 optional_keys() ->
-    NodeID = create_node_id(),
-    [{map_node_id, orddict:from_list([{node(), NodeID}])},
-     {node_id, NodeID}].
+    [{map_node_id, orddict:new()}].
 
 record_config_to_proplist(NodeID, Config = #config {}) ->
     Fields = record_info(fields, config),
@@ -73,10 +76,8 @@ proplist_config_to_record(Proplist) when is_list(Proplist) ->
                             {Pos + 1, setelement(Pos, ConfigN, Value)}
                     end, {2, #config {}}, Fields),
     ok = validate_config(Config),
-    Config1 = Config #config { nodes = normalise_nodes(Nodes) },
-    NodeID = proplists:get_value(node_id, Proplist1),
-    true = is_binary(NodeID) orelse NodeID =:= undefined, %% ASSERTION
-    {NodeID, Config1}.
+    {proplists:get_value(node_id, Proplist1),
+     Config #config { nodes = normalise_nodes(Nodes) }}.
 
 check_required_keys(Proplist) ->
     case required_keys() -- proplists:get_keys(Proplist) of
@@ -165,8 +166,12 @@ validate_config_key(nodes, Nodes, _Config) when is_list(Nodes) ->
 validate_config_key(nodes, Nodes, _Config) ->
     {error,
      rabbit_misc:format("Require nodes to be a list of nodes: ~p", [Nodes])};
-validate_config_key(map_node_id, _Orddict, _Config) ->
-    ok.
+validate_config_key(map_node_id, Orddict, _Config) when is_list(Orddict) ->
+    ok;
+validate_config_key(map_node_id, Orddict, _Config) ->
+    {error,
+     rabbit_misc:format("Requires map_node_id to be an orddict: ~p", [Orddict])}.
+
 
 normalise_nodes(Nodes) when is_list(Nodes) ->
     lists:usort(
@@ -203,8 +208,8 @@ merge_node_id_maps(NodeID,
 
 merge_configs(NodeID, ConfigDest, ConfigSrc = #config {}) ->
     merge_node_id_maps(NodeID, ConfigDest, ConfigSrc);
-merge_configs(_NodeID, Config, undefined) ->
-    Config.
+merge_configs(NodeID, Config, undefined) ->
+    tidy_node_id_maps(NodeID, Config).
 %% We deliberately don't have either of the other cases.
 
 add_node_id(NewNode, NewNodeID, NodeID,

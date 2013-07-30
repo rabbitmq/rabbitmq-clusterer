@@ -43,6 +43,8 @@ rabbit_booted() ->
     ok.
 
 send_new_config(Config, Node) when is_atom(Node) ->
+    %% Node may be undefined. gen_server:cast doesn't error. This is
+    %% what we want.
     gen_server:cast({?SERVER, Node}, template_new_config(Config)),
     ok;
 send_new_config(_Config, []) ->
@@ -108,32 +110,53 @@ handle_call({{transitioner, _TModule} = Status, Msg}, From,
 handle_call({{transitioner, _TModule}, _Msg}, _From, State) ->
     {reply, invalid, State};
 
-handle_call({apply_config, Config}, From, State = #state { status = Status })
-  when Status =:= ready orelse Status =:= pending_shutdown ->
-    gen_server:reply(From, ok),
-    Config1 =
-        case Config of
-            #config {} ->
-                Config;
-            [{_,_}|_] ->
-                {_NodeID, Config2} =
-                    rabbit_clusterer_utils:proplist_config_to_record(Config),
-                Config2;
-            [_|_] ->
-                case rabbit_file:read_term_file(Config) of
-                    {error, enoent}  ->
-                        undefined;
-                    {ok, [Proplist]} ->
-                        rabbit_clusterer_utils:proplist_config_to_record(Proplist)
-                end;
-            _ ->
-                undefined
-        end,
-    State1 = case Config1 of
-                 #config {} -> begin_transition(Config1, State);
-                 _          -> State
-             end,
-    {noreply, State1};
+handle_call({apply_config, NewConfig}, From,
+            State = #state { status = Status, config = Config })
+  when Status =:= ready orelse Status =:= pending_shutdown
+       orelse ?IS_TRANSITIONER(Status) ->
+    NewConfig1 = case NewConfig of
+                     undefined ->
+                         load_external_config();
+                     #config {} ->
+                         ok = rabbit_clusterer_utils:validate_config(NewConfig),
+                         NewConfig;
+                     _ -> load_external_config(NewConfig)
+                 end,
+    case NewConfig1 of
+        #config {} ->
+            case Status of
+                {transitioner, _} ->
+                    %% We have to defer to the transitioner here which
+                    %% means we can't give back as good feedback, but
+                    %% never mind. The transitioner will do the
+                    %% comparison for us with whatever it's currently
+                    %% trying to transition to.
+                    gen_server:reply(From, transition_in_progress_ok),
+                    {noreply,
+                     transitioner_event(
+                       {new_config, NewConfig1, undefined}, State)};
+                _ ->
+                    case rabbit_clusterer_utils:compare_configs(NewConfig1, Config) of
+                        lt ->
+                            {reply, {provided_config_is_older_than_current,
+                                     NewConfig1, Config}, State};
+                        eq ->
+                            {reply, {provided_config_already_applied,
+                                     NewConfig1}, State};
+                        gt ->
+                            gen_server:reply(
+                              From,
+                              {beginning_transition_to_provided_config, NewConfig1}),
+                            {noreply, begin_transition(NewConfig1, State)};
+                        invalid ->
+                            {reply,
+                             {provided_config_has_same_version_but_differs_from_current,
+                              NewConfig1, Config}}
+                    end
+            end;
+        _ ->
+            {reply, {invalid_config_specification, NewConfig}, State}
+    end;
 handle_call({apply_config, _Config}, _From,
             State = #state { status = Status }) ->
     {reply, {cannot_apply_config_currently, Status}, State};
@@ -165,11 +188,14 @@ handle_cast(begin_coordination,
                 %% No config at all, 'join' the default.
                 {NodeID1, NewConfig1} = rabbit_clusterer_utils:default_config(),
                 {NodeID1, NewConfig1, undefined};
-            {{undefined, NewConfig1}, undefined} ->
-                {rabbit_clusterer_utils:create_node_id(), NewConfig1, undefined};
+            {NewConfig1, undefined} ->
+                NodeID1 = rabbit_clusterer_utils:create_node_id(),
+                NewConfig2 = rabbit_clusterer_utils:merge_configs(
+                               NodeID1, NewConfig1, undefined),
+                {NodeID1, NewConfig2, undefined};
             {undefined, {NodeID1, OldConfig1}} ->
                 {NodeID1, OldConfig1, OldConfig1};
-            {{undefined, NewConfig1}, {NodeID1, OldConfig1}} ->
+            {NewConfig1, {NodeID1, OldConfig1}} ->
                 %% External is user specified and they've provided a
                 %% config but it won't contain a NodeID, so we'll have
                 %% generated one. Thus discard the new one.
@@ -396,34 +422,38 @@ internal_config_path() -> rabbit_mnesia:dir() ++ "-cluster.config".
 external_config_path() -> application:get_env(rabbitmq_clusterer, config).
 
 load_external_config() ->
-    ExternalProplist =
-        case external_config_path() of
-            {ok, ExternalProplist1 = [{_,_}|_]} ->
-                ExternalProplist1;
-            {ok, ExternalPath = [_|_]} ->
-                case rabbit_file:read_term_file(ExternalPath) of
-                    {error, enoent}           -> undefined;
-                    {ok, [ExternalProplist1]} -> ExternalProplist1
-                end;
-            undefined ->
-                undefined
-        end,
-    case ExternalProplist of
-        undefined -> undefined;
-        _         -> rabbit_clusterer_utils:proplist_config_to_record(
-                       ExternalProplist)
+    case external_config_path() of
+        {ok, PathOrProplist} -> load_external_config(PathOrProplist);
+        undefined            -> undefined
     end.
 
-load_internal_config() ->
-    InternalProplist =
-        case rabbit_file:read_term_file(internal_config_path()) of
-            {error, enoent}                       -> undefined;
-            {ok, [InternalProplist1 = [{_,_}|_]]} -> InternalProplist1
+load_external_config(PathOrProplist) when is_list(PathOrProplist) ->
+    Proplist =
+        case PathOrProplist of
+            [{_,_}|_] -> PathOrProplist;
+            [_|_]     -> case rabbit_file:read_term_file(PathOrProplist) of
+                             {error, enoent}   -> undefined;
+                             {ok, [Proplist1]} -> Proplist1
+                         end
         end,
-    case InternalProplist of
+    {_NodeID, Config} =
+        rabbit_clusterer_utils:proplist_config_to_record(Proplist),
+    Config;
+load_external_config(_) ->
+    undefined.
+
+load_internal_config() ->
+    Proplist = case rabbit_file:read_term_file(internal_config_path()) of
+                   {error, enoent}               -> undefined;
+                   {ok, [Proplist1 = [{_,_}|_]]} -> Proplist1
+               end,
+    case Proplist of
         undefined -> undefined;
-        _         -> rabbit_clusterer_utils:proplist_config_to_record(
-                       InternalProplist)
+        _         -> {NodeID, _Config} = Result =
+                         rabbit_clusterer_utils:proplist_config_to_record(
+                           Proplist),
+                     true = is_binary(NodeID), %% ASSERTION
+                     Result
     end.
 
 write_internal_config(NodeID, Config) ->

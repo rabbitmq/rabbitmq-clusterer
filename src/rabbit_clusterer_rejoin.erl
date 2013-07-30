@@ -296,7 +296,7 @@ collect_dependency_graph(RejoiningNodes, State = #state { comms = Comms }) ->
     ok = rabbit_clusterer_comms:multi_call(
            RejoiningNodes, {{transitioner, ?MODULE}, request_awaiting}, Comms),
     {continue, State #state { status = awaiting_awaiting }}.
-                                                            
+
 
 request_status(State = #state { comms   = Comms,
                                 node_id = NodeID,

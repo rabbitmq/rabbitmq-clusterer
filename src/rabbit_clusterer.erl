@@ -2,7 +2,7 @@
 
 -behaviour(application).
 
--export([start/2, stop/1, boot/0, apply_config/1]).
+-export([start/2, stop/1, boot/0, apply_config/0, apply_config/1]).
 
 -export([begin_clustering/0, rabbit_booted/0]).
 
@@ -33,6 +33,9 @@ rabbit_booted() ->
 
 boot() ->
     ok = begin_clustering().
+
+apply_config() ->
+    apply_config(undefined).
 
 apply_config(Config) ->
     rabbit_clusterer_coordinator:apply_config(Config).
