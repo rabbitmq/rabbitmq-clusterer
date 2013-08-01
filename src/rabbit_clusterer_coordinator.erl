@@ -164,10 +164,9 @@ handle_call(Msg, From, State) ->
 %%----------------
 %% Cast
 %%----------------
-handle_cast(begin_coordination,
-            State = #state { node_id      = NodeID,
-                             status       = preboot,
-                             config       = Config }) ->
+handle_cast(begin_coordination, State = #state { node_id = NodeID,
+                                                 status  = preboot,
+                                                 config  = Config }) ->
     %% We deliberately don't start doing any clustering work until we
     %% get this call. This is because we need to wait for the boot
     %% step to make the call as only by then can we be sure that
@@ -325,9 +324,9 @@ handle_info(poke_the_dead, State = #state { dead        = Dead,
     %% When we're transitioning to something else (or even booting) we
     %% don't bother with the poke as the transitioner will take care
     %% of updating nodes we want to cluster with and the surrounding
-    %% code will update the nodes we're currently clustered and any
-    %% other nodes that contacted us whilst we were transitioning or
-    %% booting.
+    %% code will update the nodes we're currently clustered with and
+    %% any other nodes that contacted us whilst we were transitioning
+    %% or booting.
     MRefsNew = [monitor(process, {?SERVER, N}) || N <- Dead],
     ok = send_new_config(Config, Dead),
     Alive1 = MRefsNew ++ Alive,
