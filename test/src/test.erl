@@ -9,7 +9,8 @@
                 cluster_state
               }).
 -record(cluster, { nodes_state,
-                   config
+                   config,
+                   configs
                  }).
 
 -record(node_state, { config,
@@ -61,15 +62,16 @@ merge_results(TaskResults, State) ->
       {seq, [{merge, T, R} || {T, R} <- orddict:to_list(TaskResults)]}, State).
 
 generate(Seed) ->
+    Config = #config { nodes            = [],
+                       shutdown_timeout = infinity,
+                       gospel           = reset,
+                       version          = 0 },
     Test = #test { seed          = Seed,
                    program       = [],
                    cluster_state =
                        #cluster { nodes_state = [],
-                                  config =
-                                      #config { nodes            = [],
-                                                shutdown_timeout = infinity,
-                                                gospel           = reset,
-                                                version          = 0 }
+                                  config = Config,
+                                  configs = orddict:new()
                                 }
                  },
     Test1 = generate_program(Test),
@@ -126,30 +128,45 @@ remove_node_from_cluster_instructions(CS = #cluster { config = Config = #config 
 
 start_node_instructions(CS = #cluster { nodes_state = NodesState, config = Config }) ->
     NewNode = generate_node(orddict:fetch_keys(NodesState)),
+    %% NewNode has just been freshly generated, so we can guarantee
+    %% that it's not mentioned by any of the configs out there.
     Nodes = [{NewNode, #node_state { running = false,
                                      config  = default }}
              | [{N, NS} || {N, NS = #node_state { running = false }} <- NodesState]],
-    Update = fun (N, NS = #node_state { config = ConfigOrig }, ApplyConfig) ->
+    %% So what config is actually going to apply to our started node?
+    %% The simple case is it's started up with Config, which is by
+    %% definition the youngest config out there. The other case leads
+    %% to a fight to find the youngest between every running config
+    %% out there that names the node. Ultimately, the youngest of all
+    %% of those will win and propogate. Eg it is possible to have a
+    %% config of A+B+C and C+D+E both 'running' with different
+    %% versions provided C is down. In truth at least one of those two
+    %% would be blocked in starting, I think.
+    Update = fun (N, NS = #node_state { config_pending = ConfigPend }, ApplyConfig) ->
                      NewConfig = #config { nodes = ClusterNodes, shutdown_timeout = T } =
                          case ApplyConfig of
                              true  -> Config;
-                             false -> ConfigOrig
+                             false -> case [N || {N, #node_state { config = ConfigPend1 }} <- NodesState,
+                                                 ConfigPend1 =:= ConfigPend,
+                                                 %% The following is necessary to 
+                                                 orddict:is_key(N, ConfigPend #config.nodes)] of
+                                          
                          end,
                      NS #node_state { config = NewConfig,
+                                      config_pending = NewConfig,
                                       running = case orddict:is_key(N, ClusterNodes) of
                                                     true  -> true;
                                                     false -> {terminating, T}
                                                 end }
              end,
-    %% TODO: if ApplyConfig then that will spread via N. Need to
-    %% track.  Whilst I've now written track_cluster_propogatation,
-    %% it's not as simple as all this: there could be some other
-    %% config in operation which includes N, but isn't the new config,
-    %% and isn't the config in question. I basically can't work out
-    %% how to track which configs apply when...
     [{{start_node, N, ApplyConfig},
-      CS #cluster { nodes_state = orddict:store(N, Update(N, NS, ApplyConfig), NodesState) }
-     } || {N, NS} <- Nodes, ApplyConfig <- [true, false]].
+      begin
+          CS1 = CS #cluster { nodes_state = orddict:store(N, Update(N, NS, ApplyConfig), NodesState) },
+          case ApplyConfig of
+              true  -> track_cluster_propogatation(CS1, N);
+              false -> CS1
+          end
+      end} || {N, NS} <- Nodes, ApplyConfig <- [true, false]].
 
 stop_node_instructions(CS = #cluster { nodes_state = NodesState }) ->
     Stops = [{{stop_node, N}, N, NS #node_state { running = false }}
@@ -189,7 +206,7 @@ await_termination_instructions(CS = #cluster { nodes_state = NodesState }) ->
       CS #cluster { nodes_state =
                         orddict:store(N, NS #node_state { running = false }, NodesState) }
      } || {N, NS = #node_state { running = {terminating, T} }} <- NodesState, T =/= infinity ].
-        
+
 reset_node_instructions(CS = #cluster { nodes_state = NodesState,
                                         config = Config = #config { nodes = ConfigNodes } }) ->
     [{{reset_node, N},
