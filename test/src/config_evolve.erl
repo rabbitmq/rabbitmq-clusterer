@@ -30,7 +30,7 @@ init([Node, Config, Namer]) ->
 
 handle_call({observe, Seed}, _From, State = #state { config     = Config,
                                                      node_namer = Namer }) ->
-    {Config1, Seed1} = choose_one(
+    {Config1, Seed1} = utils:choose_one(
                          Seed,
                          lists:append(
                            [change_shutdown_timeout(Config),
@@ -65,10 +65,6 @@ terminate(_Reason, _State) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
-
-choose_one(N, List) ->
-    Len = length(List),
-    {lists:nth(1 + (N rem Len), List), N div Len}.
 
 change_shutdown_timeout(Config = #config { shutdown_timeout = X }) ->
     Values = [infinity, 0, 1, 2, 10, 30],

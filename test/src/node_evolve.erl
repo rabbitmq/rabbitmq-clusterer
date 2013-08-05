@@ -12,7 +12,7 @@
                 node_namer,
                 observed_config,
                 observed_status,
-                predicted_status
+                predicted_status,
                 action
                }).
 
@@ -38,23 +38,24 @@ init([Node, Namer]) ->
     {ok, #state { node = Node, node_namer = Namer }}.
 
 handle_call({observe, Seed}, _From, State = #state { node = Node }) ->
-    Response = request_status(Node),
-    Config = case Response of
-                 {ok, {Config1 = #config {}, _Status}} -> Config1;
-                 _                                     -> undefined
-             end,
-    Status = case Response of
-                 {ok, {#config {}, Status1}}                        -> Status1;
-                 {ok, preboot}                                      -> preboot;
-                 {error, exit, {R, _}}      when ?IS_BENIGN_EXIT(R) -> nodedown;
-                 {error, exit, {{R, _}, _}} when ?IS_BENIGN_EXIT(R) -> nodedown;
-                 _                                                  -> undefined
-             end,
-    State1 = ensure_config_envolver(State #state { observed_config = Config,
-                                                   observed_status = Status }),
-    {Seed1, State2} = pick_action(Seed, State1),
-    Seed2 = maybe_config_observe(Seed1, State2),
-    {reply, Seed2, State2};
+    Inspection = inspect_node(Node),
+    case validate_situation(Node, Inspection) of
+        true ->
+            State1 = case Inspection of
+                         {Config = #config {}, _Status1, Status2, _Running} ->
+                             State #state { observed_config = Config,
+                                            observed_status = Status2 };
+                         {Config, Status1} ->
+                             State #state { observed_config = Config,
+                                            observed_status = Status1 }
+                     end,
+            State2 = ensure_config_evolver(State1),
+            {Seed1, State3} = pick_action(Seed, State2),
+            Seed2 = maybe_config_observe(Seed1, State3),
+            {reply, Seed2, State3};
+        false ->
+            {stop, normal, validation_error, State}
+    end;
 handle_call(transmogrify, _From, State) ->
     {reply, ok, State};
 handle_call(verify, _From, State) ->
@@ -75,22 +76,42 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 
-ensure_config_envolver(State = #state { config_evolve   = undefined,
-                                        observed_config = Config = #config {},
-                                        node            = Node,
-                                        node_namer      = Namer }) ->
+ensure_config_evolver(State = #state { config_evolve   = undefined,
+                                       observed_config = Config = #config {},
+                                       node            = Node,
+                                       node_namer      = Namer }) ->
     {ok, Pid} = config_evolve:start_link(Node, Config, Namer),
     State #state { config_evolve = Pid };
-ensure_config_envolver(State) ->
+ensure_config_evolver(State) ->
     State.
 
+inspect_node(Node) ->
+    Result1 = request_status(Node),
+    Running = stuff_running_on(Node),
+    Result2 = request_status(Node),
+    %% The logic here is that if both Results have the same Config,
+    %% then you can treat Running as being an atomic call with both of
+    %% those. Ish.
+    case {Result1, Result2} of
+        {{Config = #config {}, Status1}, {Config, Status2}} ->
+            {Config, Status1, Status2, Running};
+        _ ->
+            Result1
+    end.
+
 request_status(Node) ->
-    try
-        {ok, gen_server:call({rabbit_clusterer_coordinator, Node},
-                             {request_status, node(), <<>>}, infinity)}
-    catch
-        Class:Error ->
-            {error, Class, Error}
+    case
+        try
+            {ok, gen_server:call({rabbit_clusterer_coordinator, Node},
+                                 {request_status, node(), <<>>}, infinity)}
+        catch
+            Class:Error ->
+                {error, Class, Error}
+        end of
+        {ok, {#config {} = Config, Status}}                -> {Config, Status};
+        {ok, preboot}                                      -> {undefined, preboot};
+        {error, exit, {R, _}} when ?IS_BENIGN_EXIT(R)      -> {undefined, nodedown};
+        {error, exit, {{R, _}, _}} when ?IS_BENIGN_EXIT(R) -> {undefined, nodedown}
     end.
 
 maybe_config_observe(Seed, #state { config_evolve = undefined }) ->
@@ -102,3 +123,51 @@ pick_action(0, State) ->
     {0, State #state { action = no_action }};
 pick_action(N, State) ->
     todo.
+
+stuff_running_on(Node) ->
+    case utils:remote_eval(Node, "application:which_applications().") of
+        {badrpc, _} ->
+            [{clusterer, false}, {mnesia, false}, {rabbit, false}];
+        {value, Results, _} ->
+            [{clusterer, [] =/= [true || {rabbitmq_clusterer,_,_} <- Results ]},
+             {mnesia, [] =/= [true || {mnesia,_,_} <- Results]},
+             {rabbit, [] =/= [true || {rabbit,_,_} <- Results]}]
+    end.
+
+validate_situation(_Node, {undefined, nodedown}) ->
+    true;
+validate_situation(_Node, {undefined, preboot}) ->
+    true;
+validate_situation(Node, {#config { nodes = Nodes }, pending_shutdown}) ->
+    not orddict:is_key(Node, Nodes);
+validate_situation(Node, {#config { nodes = Nodes }, booting}) ->
+    orddict:is_key(Node, Nodes);
+validate_situation(Node, {#config { nodes = Nodes }, ready}) ->
+    orddict:is_key(Node, Nodes);
+validate_situation(_Node, {#config {}, {transitioner, _}}) ->
+    true;
+
+validate_situation(Node, {Config, _StatusOld, StatusNew, Running}) ->
+    validate_situation(Node, {Config, StatusNew, Running});
+
+validate_situation(_Node, {_Config, {transitioner, _}, Running}) ->
+    orddict:fetch(clusterer, Running);
+validate_situation(Node, {#config { nodes = Nodes }, booting, Running}) ->
+    %% If we were 'booting' both sides of stuff_running_on then rabbit
+    %% cannot be started.
+    orddict:fetch(clusterer, Running) andalso
+        (not orddict:fetch(rabbit, Running)) andalso
+        orddict:is_key(Node, Nodes);
+validate_situation(Node, {#config { nodes = Nodes }, ready, Running}) ->
+    %% Sadly with ready, you can't quite infer that the rabbit
+    %% application is actually started - which_applications doesn't
+    %% report an application until it's fully started, which may occur
+    %% later than clusterer reports ready.
+    orddict:fetch(clusterer, Running) andalso 
+        orddict:fetch(mnesia, Running) andalso 
+        orddict:is_key(Node, Nodes);
+validate_situation(Node, {#config { nodes = Nodes }, pending_shutdown, Running}) ->
+    orddict:fetch(clusterer, Running) andalso
+        (not orddict:fetch(mnesia, Running)) andalso 
+        (not orddict:fetch(rabbit, Running)) andalso 
+        (not orddict:is_key(Node, Nodes)).
