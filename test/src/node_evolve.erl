@@ -42,12 +42,12 @@ handle_call({observe, Seed}, _From, State = #state { node = Node }) ->
     case validate_situation(Node, Inspection) of
         true ->
             State1 = case Inspection of
-                         {Config = #config {}, _Status1, Status2, _Running} ->
+                         {Config = #config {}, Status, _Running} ->
                              State #state { observed_config = Config,
-                                            observed_status = Status2 };
-                         {Config, Status1} ->
+                                            observed_status = Status };
+                         {Config, Status} ->
                              State #state { observed_config = Config,
-                                            observed_status = Status1 }
+                                            observed_status = Status }
                      end,
             State2 = ensure_config_evolver(State1),
             {Seed1, State3} = pick_action(Seed, State2),
@@ -93,8 +93,8 @@ inspect_node(Node) ->
     %% then you can treat Running as being an atomic call with both of
     %% those. Ish.
     case {Result1, Result2} of
-        {{Config = #config {}, Status1}, {Config, Status2}} ->
-            {Config, Status1, Status2, Running};
+        {{Config = #config {}, _Status1}, {Config, Status2}} ->
+            {Config, Status2, Running};
         _ ->
             Result1
     end.
@@ -121,7 +121,7 @@ maybe_config_observe(Seed, #state { config_evolve = Pid }) ->
 
 pick_action(0, State) ->
     {0, State #state { action = no_action }};
-pick_action(N, State) ->
+pick_action(N, State #state { observed_status = nodedown, predicted_status = nodedown }) ->
     todo.
 
 stuff_running_on(Node) ->
@@ -146,9 +146,6 @@ validate_situation(Node, {#config { nodes = Nodes }, ready}) ->
     orddict:is_key(Node, Nodes);
 validate_situation(_Node, {#config {}, {transitioner, _}}) ->
     true;
-
-validate_situation(Node, {Config, _StatusOld, StatusNew, Running}) ->
-    validate_situation(Node, {Config, StatusNew, Running});
 
 validate_situation(_Node, {_Config, {transitioner, _}, Running}) ->
     orddict:fetch(clusterer, Running);

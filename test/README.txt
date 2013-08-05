@@ -1,29 +1,38 @@
-What to model?
+Testing Plan 3.
 
-Or, put it another way, if we're generating instructions, how can
-we ensure that these instructions are valid? Instructions can be
-dependent on the state of the cluster/clusters.
+# Plan 1 was:
+program <- dsl
+run program
+verify result.
 
-Instructions:
-change shutdown timeout (which config?)
-change gospel (which config?)
-add node to cluster (which config?)
-remove node from cluster (which config?)
+Problem was generation of valid program required complex linear types,
+making in unfeasible. I then went to plan 2:
 
-start node
-stop node
-reset node
-delete node
+# Plan 2 was:
+one process per node. Up to one config process per node.
+Iterative expansion of program with minimal coordination and state by
+essentially allowing node processes to do whatever they want to their
+node.
 
-apply config (which config? which node?)
+Problem here is that the node processes can't really validate the
+action they attempted to apply to their node as their node is
+influenced by everyone else too. Eg you start a node, but you can't
+even expect to find later that it's up because some other node process
+may have applied a config to their node which turns our node off.
 
+General process was to ask everyone to "observe and pick your next
+action", then "apply action". Repeat.
 
-If we permit "apply config" to apply to stopped nodes then we
-keep "start node" much simpler, though we'd need to track...
+# Plan 3 is:
+Sort of a variation on Plan 2, but with much greater coordination.
 
-New idea. Iterative expansion based on observations of the real
-world. One erlang process per node.
+Driver asks all nodes for their instruction. Node process select based
+on current known state of their node. Driver uses all this to predict
+the next stable state. Driver allows all node processes to proceed,
+which they do. We then continuously poll all nodes until they're
+stable - i.e. pending_shutdown, off, or read. At that point, we
+compare global state with predicted state.
 
-Now either that process can also evolve config, or separate processes
-for config evolution. Up to max of one config process per node based
-on fact you can't apply multiple configs to the same node at once.
+Now there are large areas which will not be tested by plan 3
+(i.e. application of changes during times of flux), but it's the
+sanest approach to testing yet, and maybe implementable.
