@@ -173,10 +173,6 @@ handle_call(Msg, From, State) ->
 handle_cast(begin_coordination, State = #state { node_id = NodeID,
                                                  status  = preboot,
                                                  config  = Config }) ->
-    %% We deliberately don't start doing any clustering work until we
-    %% get this call. This is because we need to wait for the boot
-    %% step to make the call as only by then can we be sure that
-    %% things like the file_handle_cache have been started up.
     ExternalConfig = load_external_config(),
     InternalConfig = case Config of
                          undefined -> load_internal_config();
@@ -218,6 +214,8 @@ handle_cast(begin_coordination, State = #state { node_id = NodeID,
     {noreply,
      begin_transition(NewConfig, State #state { node_id = NewNodeID,
                                                 config  = OldConfig })};
+handle_cast(begin_coordination, State) ->
+    {noreply, State};
 
 handle_cast({comms, Comms, Result},
             State = #state { comms = Comms, status = {transitioner, _} }) ->
