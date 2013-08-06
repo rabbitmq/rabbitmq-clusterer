@@ -13,7 +13,7 @@
                     {mfa, {rabbit_clusterer_coordinator, rabbit_booted, []}},
                     {requires, networking}]}).
 
-%%----------------------------------------------------------------------
+%%----------------------------------------------------------------------------
 
 boot() ->
     ok = application:start(rabbitmq_clusterer),
@@ -27,7 +27,7 @@ apply_config() -> apply_config(undefined).
 
 apply_config(Config) -> rabbit_clusterer_coordinator:apply_config(Config).
 
-%%----------------------------------------------------------------------
+%%----------------------------------------------------------------------------
 
 start(normal, []) -> rabbit_clusterer_sup:start_link().
 
