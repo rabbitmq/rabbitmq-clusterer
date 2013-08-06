@@ -141,7 +141,8 @@ handle_call({apply_config, NewConfig}, From,
                       NewConfig1, Config}, State}
             end;
         _ ->
-            {reply, {invalid_config_specification, NewConfig, NewConfig1}, State}
+            {reply, {invalid_config_specification,
+                     NewConfig, NewConfig1}, State}
     end;
 handle_call({apply_config, _Config}, _From,
             State = #state { status = Status }) ->
