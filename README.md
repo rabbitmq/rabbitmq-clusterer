@@ -53,7 +53,7 @@ all the other nodes as necessary.
     [{version, 43},
      {nodes, [{rabbit@hostA, disc}, {rabbit@hostB, ram}, {rabbit@hostD, disc}]},
      {gospel, {node, rabbit@hostD}},
-     {shutdown_timeout, 30}]
+     {shutdown_timeout, 30}].
 
 The above gives an example cluster config. This specifies that the
 cluster is formed out of the nodes `rabbit@hostA`, `rabbit@hostB` and
@@ -204,3 +204,91 @@ and running, at which point it could sync with that node.
     same outcome will be achieved. The `shutdown_timeout` tuple is
     just a convenience to provide a simpler path through this type of
     scenario.
+
+
+## Applying cluster configs
+
+The Clusterer will communicate a new valid config to both all the
+nodes of its current config, and in addition to all the nodes in the
+new config. Even if the cluster is able to be formed in the absence of
+some nodes indicated in the config, the nodes of the cluster will
+continue to attempt to make contact with any missing nodes and will
+pass the config to them if and when they eventually appear.
+
+All of which means that you generally only need to supply new configs
+to a single node of any cluster. There is no harm in doing more than
+this. The Clusterer stores on disk the currently applied config (it
+stores this next to the mnesia directory Rabbit uses for all its
+persistent data) and so if a node goes down, it will have a record of
+the config in operation when it was last up. When it comes back up, it
+will attempt to rejoin that cluster, regardless of whether this node
+was ever explicitly given this config.
+
+There are a couple of ways to specify a cluster config:
+
+* The `rabbitmq.config` file. In a `rabbitmq_clusterer` section you
+  can add a `config` entry. This can be either a path to a file
+  containing the config, or a config itself:
+  
+      [{rabbitmq_clusterer,
+          [{config, "/path/to/my/cluster.config"}]
+       }].
+  
+  or
+  
+      [{rabbitmq_clusterer,
+          [{config,
+              [{version, 43},
+               {nodes, [{rabbit@hostA, disc}, {rabbit@hostB, ram}, {rabbit@hostD, disc}]},
+               {gospel, {node, rabbit@hostD}},
+               {shutdown_timeout, 30}]
+           }]
+       }].
+  
+  Do not forget the dot on the end, either in the `rabbitmq.config`
+  file, or on the cluster config if you provide the cluster config in
+  a separate file.
+
+* `rabbitmqctl eval 'rabbit_clusterer:apply_config().'`
+  
+  **This will only have any effect if there is an entry in the
+  `rabbitmq.config` file for the clusterer as above, and a path is
+  specified as the value rather than a config directly.**
+  
+  If that is the case, then this will cause the node to reload the
+  file containing cluster config and apply it. Note that you cannot
+  change the path itself in the `rabbitmq.config` file dynamically:
+  neither Rabbit nor the clusterer will pick up any changes to that
+  file without restarting the whole Erlang node.
+
+* `rabbitmqctl eval 'rabbit_clusterer:apply_config("/path/to/my/other/cluster.config").'`
+  
+  This will cause the Clusterer to attempt to load the indicated file
+  as a cluster config and apply it. Using this method rather than the
+  above allows the path to change dynamically and does not depend on
+  any entries in the `rabbitmq.config` file.
+  
+  Note if you really want to, rather than suppling a path to a file,
+  you can supply the cluster config as a proplist directly, just as
+  you can in the `rabbitmq.config` file itself.
+
+### Mistakes in config files
+
+Config files can contain mistakes. If you apply a config file using
+`rabbitmqctl eval` then you'll get feedback directly. If you specify
+the config file via `rabbitmq.config` then and mistakes will be logged
+to Rabbit's log files.
+
+In general, the Clusterer tries reasonably hard to give informative
+messages about what it doesn't like, but that can only occur if the
+config is syntactically valid in the first place. If you forget to
+bump the version number it will complain, and generally whenever the
+Clusterer comes across configs with equal version numbers but
+semantically different contents it takes highly evasive action: in
+some situations, it may decide to shut down the whole Erlang node
+immediately. It is your responsibility to manage the version numbers:
+the Clusterer expects to be able to order configs by version numbers,
+and thus determine the youngest config. You need to ensure it can do
+this. If you're building cluster configs automatically, one sensible
+approach would be to set the version to the number of seconds since
+epoch, for example.
