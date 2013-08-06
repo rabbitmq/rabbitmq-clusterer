@@ -2,8 +2,7 @@
 
 -include("rabbit_clusterer.hrl").
 
--export([default_config/0,
-         create_node_id/0,
+-export([choose_external_or_internal/2,
          record_config_to_proplist/2,
          proplist_config_to_record/1,
          validate_config/1,
@@ -29,9 +28,33 @@
 %% Config loading / conversion
 %%----------------------------------------------------------------------------
 
+choose_external_or_internal(undefined, undefined) ->
+    {ok, NodeID, NewConfig} = default_config(),
+    {NodeID, NewConfig, undefined};
+choose_external_or_internal(NewConfig, undefined) ->
+    %% We only have an external config and no internal config, so we
+    %% have no NodeID, so we must generate one.
+    NodeID = create_node_id(),
+    NewConfig = merge_configs(NodeID, NewConfig, undefined),
+    {NodeID, NewConfig, undefined};
+choose_external_or_internal(undefined, {NodeID, OldConfig}) ->
+    {NodeID, OldConfig, OldConfig};
+choose_external_or_internal(NewConfig, {NodeID, OldConfig}) ->
+    case rabbit_clusterer_utils:compare_configs(NewConfig, OldConfig) of
+        gt ->
+            %% New cluster config has been applied
+            {NodeID, NewConfig, OldConfig};
+        invalid ->
+            error_logger:info_msg(
+              "Ignoring invalid user-provided configuration", []),
+            {NodeID, OldConfig, OldConfig};
+        _ ->
+            %% All other cases, we ignore the user-provided config.
+            {NodeID, OldConfig, OldConfig}
+    end.
+
 %% Note that here we intentionally deal with NodeID being in the
 %% proplist as on disk but not in the #config record.
-
 default_config() ->
     NodeID = create_node_id(),
     MyNode = node(),

@@ -34,14 +34,14 @@
 
 start_link() -> gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
-begin_coordination() -> gen_server:cast(?SERVER, begin_coordination).
+begin_coordination() -> ok = gen_server:cast(?SERVER, begin_coordination).
 
-rabbit_booted() -> gen_server:cast(?SERVER, rabbit_booted).
+rabbit_booted() -> ok = gen_server:cast(?SERVER, rabbit_booted).
 
 send_new_config(Config, Node) when is_atom(Node) ->
     %% Node may be undefined. gen_server:cast doesn't error. This is
     %% what we want.
-    gen_server:cast({?SERVER, Node}, template_new_config(Config));
+    ok = gen_server:cast({?SERVER, Node}, template_new_config(Config));
 send_new_config(_Config, []) ->
     ok;
 send_new_config(Config, Nodes) when is_list(Nodes) ->
@@ -164,38 +164,8 @@ handle_cast(begin_coordination, State = #state { node_id = NodeID,
                          _         -> {NodeID, Config}
                      end,
     {NewNodeID, NewConfig, OldConfig} =
-        case {ExternalConfig, InternalConfig} of
-            {undefined, undefined} ->
-                %% No config at all, 'join' the default.
-                {ok, NodeID1, NewConfig1} =
-                    rabbit_clusterer_utils:default_config(),
-                {NodeID1, NewConfig1, undefined};
-            {NewConfig1, undefined} ->
-                NodeID1 = rabbit_clusterer_utils:create_node_id(),
-                NewConfig2 = rabbit_clusterer_utils:merge_configs(
-                               NodeID1, NewConfig1, undefined),
-                {NodeID1, NewConfig2, undefined};
-            {undefined, {NodeID1, OldConfig1}} ->
-                {NodeID1, OldConfig1, OldConfig1};
-            {NewConfig1, {NodeID1, OldConfig1}} ->
-                %% External is user specified and they've provided a
-                %% config but it won't contain a NodeID, so we'll have
-                %% generated one. Thus discard the new one.
-                case rabbit_clusterer_utils:compare_configs(NewConfig1,
-                                                            OldConfig1) of
-                    gt ->
-                        %% New cluster config has been applied
-                        {NodeID1, NewConfig1, OldConfig1};
-                    invalid ->
-                        error_logger:info_msg(
-                          "Ignoring invalid user-provided configuration", []),
-                        {NodeID1, OldConfig1, OldConfig1};
-                    _ ->
-                        %% All other cases, we ignore the
-                        %% user-provided config.
-                        {NodeID1, OldConfig1, OldConfig1}
-                end
-        end,
+        rabbit_clusterer_utils:choose_external_or_internal(
+          ExternalConfig, InternalConfig),
     {noreply,
      begin_transition(NewConfig, State #state { node_id = NewNodeID,
                                                 config  = OldConfig })};
