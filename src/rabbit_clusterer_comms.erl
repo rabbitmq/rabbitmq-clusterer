@@ -11,6 +11,23 @@
 
 -define(TARGET, rabbit_clusterer_coordinator).
 
+%% In general the comms process exists to perform blocking calls to
+%% other nodes, without causing the main coordinator process to
+%% block. Thus the communication between the coordinator and the comms
+%% is always async even if the comms process goes on to do blocking
+%% communication with other nodes. Thus we explain the existence of
+%% multi_call.
+%%
+%% Once we have multi_call and we care about message arrival order, we
+%% have to have multi_cast too so that messages arrive in the same
+%% order they were sent.
+%%
+%% We also push the locking API in here. This is rather more complex
+%% and is only used by the rejoin transitioner, where it is also
+%% documented. But essentially the comms pid is the lock, and the lock
+%% is taken by some other pid, which the lock monitors. Should the pid
+%% that holds the lock die, the lock is released.
+
 start_link() ->
     Ref = make_ref(),
     {ok, Pid} = gen_server:start_link(?MODULE, [Ref], []),
