@@ -159,7 +159,16 @@ handle_call(Msg, From, State) ->
 handle_cast(begin_coordination, State = #state { node_id = NodeID,
                                                  status  = preboot,
                                                  config  = Config }) ->
-    ExternalConfig = load_external_config(),
+    ExternalConfig =
+        case load_external_config() of
+            {ok, ExternalConfig1} ->
+                ExternalConfig1;
+            {error, Error} ->
+                error_logger:info_msg(
+                  "Ignoring external configuration due to error: "
+                  "~p~n", [Error]),
+                undefined
+        end,
     InternalConfig = case Config of
                          undefined -> load_internal_config();
                          _         -> {NodeID, Config}
@@ -379,34 +388,28 @@ external_config_path() -> application:get_env(rabbitmq_clusterer, config).
 
 load_external_config() ->
     case external_config_path() of
-        {ok, PathOrProplist} -> load_external_config(PathOrProplist);
-        undefined            -> undefined
+        {ok, PathOrProplist} ->
+            load_external_config(PathOrProplist);
+        undefined ->
+            {error, no_external_config_path_provided}
     end.
 
 load_external_config(PathOrProplist) when is_list(PathOrProplist) ->
-    Proplist =
-        case PathOrProplist of
-            [{_,_}|_] -> PathOrProplist;
-            [_|_]     -> case rabbit_file:read_term_file(PathOrProplist) of
-                             {error, enoent}   -> undefined;
-                             {ok, [Proplist1]} -> Proplist1
-                         end
-        end,
-    case Proplist of
-        undefined -> undefined;
-        _         -> case rabbit_clusterer_utils:proplist_config_to_record(
-                            Proplist) of
-                         {ok, _NodeID, Config} ->
-                             Config;
-                         {error, E} ->
-                             error_logger:info_msg(
-                               "Ignoring external configuration due to error: "
-                               "~p~n", [E]),
-                             undefined
-                     end
+    ProplistOrErr = case PathOrProplist of
+                        [{_,_}|_] -> {ok, [PathOrProplist]};
+                        [_|_]     -> rabbit_file:read_term_file(PathOrProplist)
+                    end,
+    case ProplistOrErr of
+        {error, _} = Error ->
+            Error;
+        {ok, [Proplist]} ->
+            case rabbit_clusterer_utils:proplist_config_to_record(Proplist) of
+                {ok, _NodeID, Config} -> {ok, Config};
+                {error, _} = Error    -> Error
+            end
     end;
 load_external_config(_) ->
-    undefined.
+    {error, external_config_not_a_path_or_proplist}.
 
 load_internal_config() ->
     Proplist = case rabbit_file:read_term_file(internal_config_path()) of
