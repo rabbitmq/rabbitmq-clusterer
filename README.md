@@ -6,10 +6,10 @@ clusters of Rabbits.
 Unlike the existing tooling, the Clusterer is declarative and goal
 directed: you tell it the overall shape of the cluster you want to
 construct and the clusterer tries to achieve that. By contrast, the
-existing tooling (`rabbitmqctl join_cluster` and friends) is very much
-less intelligent, requires much more oversight, and is unsuited to
-automated deployment tools. The Clusterer has been specifically
-designed with automated deployment tools in mind.
+existing tooling (`rabbitmqctl join_cluster` and friends) is
+imperative, requires much more oversight, and is unsuited to automated
+deployment tools. The Clusterer has been specifically designed with
+automated deployment tools in mind.
 
 
 ## Installation
