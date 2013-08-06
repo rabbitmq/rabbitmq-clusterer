@@ -114,7 +114,7 @@ event({comms, {Replies, BadNodes}}, State = #state { status  = awaiting_status,
                         [_|_] ->
                             update_remote_nodes(OlderThanUs, Youngest, State);
                         [] ->
-                            maybe_rejoin(BadNodes, StatusDict, 
+                            maybe_rejoin(BadNodes, StatusDict,
                                          State #state { config = Youngest })
                     end;
                 _ ->
@@ -282,7 +282,7 @@ maybe_rejoin(BadNodes, StatusDict,
                     %% wait for it to appear.
                     delayed_request_status(State1)
             end
-    end.    
+    end.
 
 update_remote_nodes(Nodes, Config, State = #state { comms = Comms }) ->
     %% Assumption here is Nodes does not contain node(). We
