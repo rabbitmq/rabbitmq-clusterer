@@ -70,20 +70,20 @@
 %% other nodes come up or go down, so it's not stable. So lock
 %% everyone.
 %%
-%% Unsurprisingly, this gets a bit more complex. We lock using the
-%% comms Pid, and the lock monitors said Pid. This is elegant in that
-%% if A locks A and B, and then a new cluster config is applied to A
-%% then the comms will be restarted, so the old pid will die, so the
-%% locks are released. Similarly, on success, the comms will be
-%% stopped, so the lock releases. This is simple and nice. Where it
-%% gets slightly more complex is what happens if A locks A and B and
-%% then a new config is applied to B. If that were to happen then that
-%% would clearly invalidate the config that A is also using. B will
-%% forward new config to A too. B and A will both restart their comms,
-%% in any order. If B goes first, we don't want B to be held up, so
-%% B's lock is actually managed by its comms (i.e. comms both takes
-%% the lock and owns the lock). So when B restarts its comms, it's
-%% unlocking itself too.
+%% Unsurprisingly, this gets a bit more complex. The lock is the Comms
+%% Pid, and the lock is taken by Comms Pids. The lock monitors the
+%% taker. This is elegant in that if A locks A and B, and then a new
+%% cluster config is applied to A then A's comms will be restarted, so
+%% the old comms Pid will die, so the locks are released. Similarly,
+%% on success, the comms will be stopped, so the lock releases. This
+%% is simple and nice. Where it gets slightly more complex is what
+%% happens if A locks A and B and then a new config is applied to
+%% B. If that were to happen then that would clearly invalidate the
+%% config that A is also using. B will forward new config to A too. B
+%% and A will both restart their comms, in any order. If B goes first,
+%% we don't want B to be held up, so as B will get a new comms, it
+%% also gets a new lock as the lock is the comms Pid itself. So when B
+%% restarts its comms, it's unlocking itself too.
 
 init(Config = #config { nodes = Nodes }, NodeID, Comms) ->
     MyNode = node(),
