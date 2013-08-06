@@ -124,23 +124,21 @@ handle_cast(Msg, State) ->
     {stop, {unhandled_cast, Msg}, State}.
 
 handle_info({'DOWN', _MRef, process, {?TARGET, Node}, _Info},
-            State = #state { locking = Locking,
-                             token   = Token }) ->
+            State = #state { locking = Locking, token = Token }) ->
     %% This DOWN must be from some node we're trying to lock.
-    case Locking of
-        undefined ->
-            {noreply, State};
-        {_Locked, [Node], ReplyTo} ->
-            gen_server:cast(ReplyTo, {comms, Token, lock_ok}),
-            {noreply, State #state { locking = undefined }};
-        {Locked, [Node,Next|ToLock], ReplyTo} ->
-            gen_server:cast({?TARGET, Next}, {lock, self()}),
-            {noreply, State #state { locking = {[Node|Locked], [Next|ToLock], ReplyTo} }};
-        {Locked, ToLock, ReplyTo} ->
-            {noreply, State #state { locking = {Locked -- [Node],
-                                                ToLock -- [Node],
-                                                ReplyTo} }}
-    end;
+    Locking1 = case Locking of
+                   undefined ->
+                       Locking;
+                   {_Locked, [Node], ReplyTo} ->
+                       gen_server:cast(ReplyTo, {comms, Token, lock_ok}),
+                       undefined;
+                   {Locked, [Node,Next|ToLock], ReplyTo} ->
+                       gen_server:cast({?TARGET, Next}, {lock, self()}),
+                       {[Node|Locked], [Next|ToLock], ReplyTo};
+                   {Locked, ToLock, ReplyTo} ->
+                       {Locked -- [Node], ToLock -- [Node], ReplyTo}
+               end,
+    {noreply, State # state { locking = Locking1 }};
 handle_info({'DOWN', _MRef, process, Pid, _Info},
             State = #state { locked_by = Pid }) ->
     {noreply, State #state { locked_by = undefined }};
