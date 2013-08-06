@@ -4,15 +4,13 @@
 
 -export([boot/0]).
 
--export([rabbit_booted/0]).
-
 -export([apply_config/0, apply_config/1]). %% for 'rabbitmqctl eval ...'
 
 -export([start/2, stop/1]).
 
 -rabbit_boot_step({rabbit_clusterer,
                    [{description, "Declarative Clustering"},
-                    {mfa, {?MODULE, rabbit_booted, []}},
+                    {mfa, {rabbit_clusterer_coordinator, rabbit_booted, []}},
                     {requires, networking}]}).
 
 %%----------------------------------------------------------------------
@@ -21,9 +19,6 @@ boot() ->
     ok = application:start(rabbitmq_clusterer),
     ok = rabbit_clusterer_coordinator:begin_coordination(),
     ok.
-
-rabbit_booted() ->
-    ok = rabbit_clusterer_coordinator:rabbit_booted().
 
 %% Apply_config allows cluster configs to be dynamically applied to a
 %% running system. Currently that's best done by rabbitmqctl eval, but
