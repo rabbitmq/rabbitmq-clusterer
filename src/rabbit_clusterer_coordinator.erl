@@ -475,13 +475,12 @@ begin_transition(NewConfig, State = #state { node_id = NodeID,
         true ->
             Melisma = rabbit_clusterer_utils:detect_melisma(NewConfig,
                                                             OldConfig),
-            Action =
-                case {Status, Melisma} of
-                    {ready, true } -> noop;
-                    {ready, false} -> reboot;
-                    {_    , true } -> {transitioner, ?REJOIN};
-                    {_    , false} -> {transitioner, ?JOIN}
-                end,
+            Action = case {Status, Melisma} of
+                         {ready, true } -> noop;
+                         {ready, false} -> reboot;
+                         {_    , true } -> {transitioner, ?REJOIN};
+                         {_    , false} -> {transitioner, ?JOIN}
+                     end,
             NewConfig1 = rabbit_clusterer_utils:merge_configs(
                            NodeID, NewConfig, OldConfig),
             case Action of
@@ -571,12 +570,12 @@ stop_comms(State = #state { comms = Token }) ->
     State #state { comms = undefined }.
 
 schedule_shutdown(State = #state {
-                          status = pending_shutdown,
-                          config = #config { shutdown_timeout = infinity } }) ->
+                    status = pending_shutdown,
+                    config = #config { shutdown_timeout = infinity } }) ->
     State #state { transitioner_state = undefined };
 schedule_shutdown(State = #state {
-                          status = pending_shutdown,
-                          config = #config { shutdown_timeout = Timeout } }) ->
+                    status = pending_shutdown,
+                    config = #config { shutdown_timeout = Timeout } }) ->
     Ref = make_ref(),
     erlang:send_after(Timeout*1000, self(), {shutdown, Ref}),
     State #state { transitioner_state = {shutdown, Ref} };
