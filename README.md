@@ -266,7 +266,7 @@ There are a couple of ways to specify a cluster config:
   This will cause the Clusterer to attempt to load the indicated file
   as a cluster config and apply it. Using this method rather than the
   above allows the path to change dynamically and does not depend on
-  any entries in the `rabbitmq.config` file. he path provided here is
+  any entries in the `rabbitmq.config` file. The path provided here is
   not retained in any way: providing the path here does not influence
   future calls to `rabbit_clusterer:apply_config().` - using
   `rabbit_clusterer:apply_config().` *always* attempts to inspect the
