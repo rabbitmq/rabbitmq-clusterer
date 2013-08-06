@@ -59,10 +59,10 @@ unsafe actions.
 * version: non negative integer
 
     All configs are versioned and this is used to decide which of any
-    any two configs is the youngest. A config which has a smaller
-    version number is older. Configs will be ignored unless they are
-    younger than the current config. Note that in lieu of any config
-    being provided by the user, the default config is used which has a
+    two configs is the youngest. A config which has a smaller version
+    number is older. Configs will be ignored unless they are younger
+    than the current config. Note that in lieu of any config being
+    provided by the user, the default config is used which has a
     version of 0. Thus user supplied configs should use a version of 1
     or greater.
 
