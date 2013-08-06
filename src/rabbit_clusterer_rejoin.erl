@@ -110,78 +110,12 @@ event({comms, {Replies, BadNodes}}, State = #state { status  = awaiting_status,
         false ->
             case rabbit_clusterer_utils:compare_configs(Youngest, Config) of
                 eq ->
-                    MyNode = node(),
                     case OlderThanUs of
                         [_|_] ->
                             update_remote_nodes(OlderThanUs, Youngest, State);
                         [] ->
-                            %% Everyone who's here is on the same
-                            %% config as us. If anyone is running then
-                            %% we can just declare success and trust
-                            %% mnesia to join into them.
-                            State1 = State #state { config = Youngest },
-                            #config { nodes = Nodes } = Youngest,
-                            SomeoneRunning = dict:is_key(ready, StatusDict),
-                            IsRam = ram =:= proplists:get_value(MyNode, Nodes),
-                            if
-                                SomeoneRunning ->
-                                    %% Someone is running, so we
-                                    %% should be able to cluster to
-                                    %% them.
-                                    {success, Youngest};
-                                IsRam ->
-                                    %% We're ram; can't do anything
-                                    %% but wait for someone else
-                                    delayed_request_status(State1);
-                                true ->
-                                    {_All, _Disc, Running} =
-                                        rabbit_node_monitor:read_cluster_status(),
-                                    DiscSet = ordsets:from_list(
-                                                [N || {N, disc} <- Nodes]),
-                                    %% Intersect with Running and
-                                    %% remove MyNode
-                                    DiscRunningSet =
-                                        ordsets:del_element(
-                                          MyNode,
-                                          ordsets:intersection(
-                                            DiscSet,
-                                            ordsets:from_list(Running))),
-                                    BadNodesSet = ordsets:from_list(BadNodes),
-                                    Joining =
-                                        case dict:find(
-                                               {transitioner, rabbit_clusterer_join},
-                                               StatusDict) of
-                                            {ok, List} -> List;
-                                            error      -> []
-                                        end,
-                                    NotJoiningSet = ordsets:subtract(
-                                                      DiscRunningSet, ordsets:from_list(Joining)),
-                                    State2 = State1 #state { awaiting = ordsets:to_list(NotJoiningSet),
-                                                             joining  = Joining },
-                                    case ordsets:is_disjoint(DiscRunningSet, BadNodesSet) of
-                                        true ->
-                                            %% Everyone we depend on is alive in some form.
-                                            case ordsets:size(NotJoiningSet) of
-                                                0 ->
-                                                    %% We win!
-                                                    lock_nodes(State2);
-                                                _ ->
-                                                    case dict:find({transitioner, ?MODULE}, StatusDict) of
-                                                        error ->
-                                                            %% No one else is rejoining, nothing we can do but wait.
-                                                            delayed_request_status(State2);
-                                                        {ok, Rejoining} ->
-                                                            collect_dependency_graph(Rejoining, State2)
-                                                    end
-                                            end;
-                                        false ->
-                                            %% We might depend on a
-                                            %% node in BadNodes. We
-                                            %% must wait for it to
-                                            %% appear.
-                                            delayed_request_status(State2)
-                                    end
-                            end
+                            maybe_rejoin(BadNodes, StatusDict, 
+                                         State #state { config = Youngest })
                     end;
                 _ ->
                     {config_changed, Youngest}
@@ -293,6 +227,62 @@ delayed_request_status(State) ->
     Ref = make_ref(),
     {sleep, 1000, {delayed_request_status, Ref},
      State #state { status = {delayed_request_status, Ref} }}.
+
+maybe_rejoin(BadNodes, StatusDict,
+             State = #state { config = Config = #config { nodes = Nodes } }) ->
+    %% Everyone who's here is on the same config as us. If anyone is
+    %% running then we can just declare success and trust mnesia to
+    %% join into them.
+    MyNode = node(),
+    SomeoneRunning = dict:is_key(ready, StatusDict),
+    IsRam = ram =:= proplists:get_value(MyNode, Nodes),
+    if
+        SomeoneRunning ->
+            %% Someone is running, so we should be able to cluster to
+            %% them.
+            {success, Config};
+        IsRam ->
+            %% We're ram; can't do anything but wait for someone else
+            delayed_request_status(State);
+        true ->
+            {_All, _Disc, Running} = rabbit_node_monitor:read_cluster_status(),
+            DiscSet = ordsets:from_list([N || {N, disc} <- Nodes]),
+            %% Intersect with Running and remove MyNode
+            DiscRunningSet =
+                ordsets:del_element(
+                  MyNode, ordsets:intersection(
+                            DiscSet, ordsets:from_list(Running))),
+            BadNodesSet = ordsets:from_list(BadNodes),
+            Joining = case dict:find({transitioner, rabbit_clusterer_join},
+                                     StatusDict) of
+                          {ok, List} -> List;
+                          error      -> []
+                      end,
+            NotJoiningSet = ordsets:subtract(
+                              DiscRunningSet, ordsets:from_list(Joining)),
+            State1 = State #state { awaiting = ordsets:to_list(NotJoiningSet),
+                                    joining  = Joining },
+            case ordsets:is_disjoint(DiscRunningSet, BadNodesSet) of
+                true ->
+                    %% Everyone we depend on is alive in some form.
+                    case {ordsets:size(NotJoiningSet),
+                          dict:find({transitioner, ?MODULE}, StatusDict)} of
+                        {0, _} ->
+                            %% We win!
+                            lock_nodes(State1);
+                        {_, error} ->
+                            %% No one else is rejoining, nothing we
+                            %% can do but wait.
+                            delayed_request_status(State1);
+                        {_, {ok, Rejoining}} ->
+                            collect_dependency_graph(Rejoining, State1)
+                    end;
+                false ->
+                    %% We might depend on a node in BadNodes. We must
+                    %% wait for it to appear.
+                    delayed_request_status(State1)
+            end
+    end.    
 
 update_remote_nodes(Nodes, Config, State = #state { comms = Comms }) ->
     %% Assumption here is Nodes does not contain node(). We
