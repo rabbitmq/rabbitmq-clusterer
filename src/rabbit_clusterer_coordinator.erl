@@ -111,14 +111,18 @@ handle_call({apply_config, NewConfig}, From,
             State = #state { status = Status, config = Config })
   when Status =:= ready orelse Status =:= pending_shutdown
        orelse ?IS_TRANSITIONER(Status) ->
-    NewConfig1 = case NewConfig of
-                     undefined ->
-                         load_external_config();
-                     #config {} ->
-                         ok = rabbit_clusterer_utils:validate_config(NewConfig),
-                         NewConfig;
-                     _ -> load_external_config(NewConfig)
-                 end,
+    NewConfig1 =
+        case NewConfig of
+            undefined ->
+                load_external_config();
+            #config {} ->
+                case rabbit_clusterer_utils:validate_config(NewConfig) of
+                    ok  -> NewConfig;
+                    Err -> Err
+                end;
+            _ ->
+                load_external_config(NewConfig)
+        end,
     case NewConfig1 of
         #config {} ->
             case Status of
@@ -182,7 +186,8 @@ handle_cast(begin_coordination, State = #state { node_id = NodeID,
         case {ExternalConfig, InternalConfig} of
             {undefined, undefined} ->
                 %% No config at all, 'join' the default.
-                {NodeID1, NewConfig1} = rabbit_clusterer_utils:default_config(),
+                {ok, NodeID1, NewConfig1} =
+                    rabbit_clusterer_utils:default_config(),
                 {NodeID1, NewConfig1, undefined};
             {NewConfig1, undefined} ->
                 NodeID1 = rabbit_clusterer_utils:create_node_id(),
@@ -200,10 +205,13 @@ handle_cast(begin_coordination, State = #state { node_id = NodeID,
                     gt ->
                         %% New cluster config has been applied
                         {NodeID1, NewConfig1, OldConfig1};
+                    invalid ->
+                        error_logger:info_msg(
+                          "Ignoring invalid user-provided configuration", []),
+                        {NodeID1, OldConfig1, OldConfig1};
                     _ ->
                         %% All other cases, we ignore the
                         %% user-provided config.
-                        %% TODO: we might want to log this decision.
                         {NodeID1, OldConfig1, OldConfig1}
                 end
         end,
@@ -435,9 +443,20 @@ load_external_config(PathOrProplist) when is_list(PathOrProplist) ->
                              {ok, [Proplist1]} -> Proplist1
                          end
         end,
-    {_NodeID, Config} =
-        rabbit_clusterer_utils:proplist_config_to_record(Proplist),
-    Config;
+    case Proplist of
+        undefined ->
+            undefined;
+        _ ->
+            case rabbit_clusterer_utils:proplist_config_to_record(Proplist) of
+                {ok, _NodeID, Config} ->
+                    Config;
+                {error, E} ->
+                    error_logger:info_msg(
+                      "Ignoring external configuration due to error: ~p~n",
+                      [E]),
+                    undefined
+            end
+    end;
 load_external_config(_) ->
     undefined.
 
@@ -448,11 +467,11 @@ load_internal_config() ->
                end,
     case Proplist of
         undefined -> undefined;
-        _         -> {NodeID, _Config} = Result =
+        _         -> {ok, NodeID, Config} =
                          rabbit_clusterer_utils:proplist_config_to_record(
                            Proplist),
                      true = is_binary(NodeID), %% ASSERTION
-                     Result
+                     {NodeID, Config}
     end.
 
 write_internal_config(NodeID, Config) ->
