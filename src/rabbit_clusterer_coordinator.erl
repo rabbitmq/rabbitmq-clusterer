@@ -116,37 +116,29 @@ handle_call({apply_config, NewConfig}, From,
             _ ->
                 load_external_config(NewConfig)
         end,
-    case NewConfig1 of
-        #config {} ->
-            case Status of
-                {transitioner, _} ->
-                    %% We have to defer to the transitioner here which
-                    %% means we can't give back as good feedback, but
-                    %% never mind. The transitioner will do the
-                    %% comparison for us with whatever it's currently
-                    %% trying to transition to.
-                    gen_server:reply(From, transition_in_progress_ok),
-                    {noreply,
-                     transitioner_event(
-                       {new_config, NewConfig1, undefined}, State)};
-                _ ->
-                    case rabbit_clusterer_utils:compare_configs(NewConfig1, Config) of
-                        lt ->
-                            {reply, {provided_config_is_older_than_current,
-                                     NewConfig1, Config}, State};
-                        eq ->
-                            {reply, {provided_config_already_applied,
-                                     NewConfig1}, State};
-                        gt ->
-                            gen_server:reply(
-                              From,
-                              {beginning_transition_to_provided_config, NewConfig1}),
-                            {noreply, begin_transition(NewConfig1, State)};
-                        invalid ->
-                            {reply,
-                             {provided_config_has_same_version_but_differs_from_current,
-                              NewConfig1, Config}}
-                    end
+    case {NewConfig1, Status} of
+        {#config {}, {transitioner, _}} ->
+            %% We have to defer to the transitioner here which means
+            %% we can't give back as good feedback, but never
+            %% mind. The transitioner will do the comparison for us
+            %% with whatever it's currently trying to transition to.
+            gen_server:reply(From, transition_in_progress_ok),
+            {noreply, transitioner_event(
+                        {new_config, NewConfig1, undefined}, State)};
+        {#config {}, _} ->
+            case rabbit_clusterer_utils:compare_configs(NewConfig1, Config) of
+                lt -> {reply, {provided_config_is_older_than_current,
+                               NewConfig1, Config}, State};
+                eq -> {reply, {provided_config_already_applied,
+                               NewConfig1}, State};
+                gt -> gen_server:reply(
+                        From,
+                        {beginning_transition_to_provided_config, NewConfig1}),
+                      {noreply, begin_transition(NewConfig1, State)};
+                invalid ->
+                    {reply,
+                     {provided_config_has_same_version_but_differs_from_current,
+                      NewConfig1, Config}}
             end;
         _ ->
             {reply, {invalid_config_specification, NewConfig}, State}
