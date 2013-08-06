@@ -2,7 +2,9 @@
 
 -behaviour(application).
 
--export([start/2, stop/1, boot/0, apply_config/0, apply_config/1]).
+-export([start/2, stop/1, boot/0]).
+
+-export([apply_config/0, apply_config/1]). %% for 'rabbitmqctl eval ...'
 
 -export([rabbit_booted/0]).
 
@@ -14,11 +16,9 @@
 
 -define(APP, rabbitmq_clusterer).
 
-start(normal, []) ->
-    rabbit_clusterer_sup:start_link().
+start(normal, []) -> rabbit_clusterer_sup:start_link().
 
-stop(_State) ->
-    ok.
+stop(_State) -> ok.
 
 boot() ->
     ok = rabbit_clusterer_utils:stop_mnesia(),
@@ -33,8 +33,6 @@ rabbit_booted() ->
 %% Apply_config allows cluster configs to be dynamically applied to a
 %% running system. Currently that's best done by rabbitmqctl eval, but
 %% may be improved in the future.
-apply_config() ->
-    apply_config(undefined).
+apply_config() -> apply_config(undefined).
 
-apply_config(Config) ->
-    rabbit_clusterer_coordinator:apply_config(Config).
+apply_config(Config) -> rabbit_clusterer_coordinator:apply_config(Config).
