@@ -138,10 +138,10 @@ handle_call({apply_config, NewConfig}, From,
                 invalid ->
                     {reply,
                      {provided_config_has_same_version_but_differs_from_current,
-                      NewConfig1, Config}}
+                      NewConfig1, Config}, State}
             end;
         _ ->
-            {reply, {invalid_config_specification, NewConfig}, State}
+            {reply, {invalid_config_specification, NewConfig, NewConfig1}, State}
     end;
 handle_call({apply_config, _Config}, _From,
             State = #state { status = Status }) ->

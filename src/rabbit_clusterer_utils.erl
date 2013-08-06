@@ -35,8 +35,8 @@ choose_external_or_internal(NewConfig, undefined) ->
     %% We only have an external config and no internal config, so we
     %% have no NodeID, so we must generate one.
     NodeID = create_node_id(),
-    NewConfig = merge_configs(NodeID, NewConfig, undefined),
-    {NodeID, NewConfig, undefined};
+    NewConfig1 = merge_configs(NodeID, NewConfig, undefined),
+    {NodeID, NewConfig1, undefined};
 choose_external_or_internal(undefined, {NodeID, OldConfig}) ->
     {NodeID, OldConfig, OldConfig};
 choose_external_or_internal(NewConfig, {NodeID, OldConfig}) ->
