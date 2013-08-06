@@ -436,7 +436,7 @@ begin_transition(NewConfig, State = #state { node_id = NodeID,
                                              nodes   = Nodes,
                                              status  = Status }) ->
     true = Status =/= booting, %% ASSERTION
-    case rabbit_clusterer_utils:node_in_config(NewConfig) of
+    case rabbit_clusterer_utils:node_in_config(node(), NewConfig) of
         false ->
             process_transitioner_response({shutdown, NewConfig}, State);
         true ->

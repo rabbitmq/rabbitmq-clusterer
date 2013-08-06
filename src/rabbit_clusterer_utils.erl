@@ -11,7 +11,6 @@
          compare_configs/2,
          detect_melisma/2,
          node_in_config/2,
-         node_in_config/1,
          nodenames/1,
          categorise_configs/3,
          stop_mnesia/0,
@@ -303,9 +302,6 @@ detect_melisma(#config { gospel = {node, Node}, map_node_id = MapNodeIDNew },
         false ->
             false
     end.
-
-node_in_config(Config) ->
-    node_in_config(node(), Config).
 
 node_in_config(Node, #config { nodes = Nodes }) ->
     [] =/= [N || {N, _} <- Nodes, N =:= Node].
