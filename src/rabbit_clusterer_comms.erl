@@ -34,48 +34,41 @@ start_link() ->
     {ok, Pid, {Pid, Ref}}.
 
 stop({Pid, _Ref}) ->
-    gen_server:cast(Pid, stop),
-    ok.
+    gen_server:cast(Pid, stop).
 
 multi_call(Nodes, Msg, {Pid, _Ref}) ->
     %% We do a cast, not a call, so that the caller doesn't block -
     %% the result gets sent back async. This is essential to avoid a
     %% potential deadlock.
-    gen_server:cast(Pid, {multi_call, self(), Nodes, Msg}),
-    ok.
+    gen_server:cast(Pid, {multi_call, self(), Nodes, Msg}).
 
 multi_cast(Nodes, Msg, {Pid, _Ref}) ->
     %% Reason for doing this is to ensure that both abcasts and
     %% multi_calls originate from the same process and so will be
     %% received in the same order as they're sent.
-    gen_server:cast(Pid, {multi_cast, Nodes, Msg}),
-    ok.
+    gen_server:cast(Pid, {multi_cast, Nodes, Msg}).
 
 %% public api
 lock_nodes(Nodes = [_|_], {Pid, _Ref}) ->
-    gen_server:cast(Pid, {lock_nodes, self(), Nodes}),
-    ok.
+    gen_server:cast(Pid, {lock_nodes, self(), Nodes}).
 
 %% passed through from coordinator
 lock(Locker, {Pid, _Ref}) ->
-    gen_server:cast(Pid, {lock, Locker}),
-    ok.
+    gen_server:cast(Pid, {lock, Locker}).
 
 %% passed through from coordinator
 unlock(Locker, {Pid, _Ref}) ->
-    gen_server:cast(Pid, {unlock, Locker}),
-    ok.
+    gen_server:cast(Pid, {unlock, Locker}).
 
+%%----------------------------------------------------------------------
 
 init([Ref]) ->
     {ok, #state { token     = {self(), Ref},
                   locked_by = undefined,
                   locking   = undefined }}.
 
-
 handle_call(Msg, From, State) ->
     {stop, {unhandled_call, Msg, From}, State}.
-
 
 handle_cast({multi_call, ReplyTo, Nodes, Msg},
             State = #state { token = Token }) ->
@@ -135,10 +128,13 @@ handle_cast({unlock, _Locker}, State) ->
     %% from a remote node which was originally for a lock held by an
     %% older comms which has since been killed off.
     {noreply, State};
+
 handle_cast(stop, State) ->
     {stop, normal, State};
+
 handle_cast(Msg, State) ->
     {stop, {unhandled_cast, Msg}, State}.
+
 
 handle_info({'DOWN', _MRef, process, {?TARGET, Node}, _Info},
             State = #state { locking = Locking, token = Token }) ->
