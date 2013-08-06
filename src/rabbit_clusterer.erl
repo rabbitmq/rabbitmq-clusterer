@@ -20,7 +20,6 @@ start(normal, []) -> rabbit_clusterer_sup:start_link().
 stop(_State) -> ok.
 
 boot() ->
-    ok = rabbit_clusterer_utils:stop_mnesia(),
     %% We need to ensure the app is already started:
     ok = application:ensure_started(?APP),
     ok = rabbit_clusterer_coordinator:begin_coordination(),
