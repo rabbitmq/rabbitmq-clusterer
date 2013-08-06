@@ -12,7 +12,7 @@ to automated deployment tools. The Clusterer has been specifically
 designed with automated deployment tools in mind.
 
 The Clusterer is not compatible with the existing clustering
-toolset. Do not use any of the `rabbitmqctl` commands relating to
+tool-set. Do not use any of the `rabbitmqctl` commands relating to
 changing clusters: `join_cluster`, `change_cluster_node_type`,
 `forget_cluster_node` and `update_cluster_nodes` must not be used. If
 you do use these, behaviour is undefined, and most likely
@@ -64,9 +64,20 @@ tuples describe how to achieve the cluster, and are thus mainly
 irrelevant once the cluster has been achieved.
 
 In general, the Clusterer will wait indefinitely for the conditions to
-be correct to form any given cluster. Again, this is in contrast to
-the existing tools which will either timeout or in some cases take
-unsafe actions.
+be correct to form any given cluster. This is in contrast to the
+existing tools which will either timeout or in some cases take
+(arguably) unsafe actions. For example, the existing tools will allow
+a fresh node to fully start when it is supplied with a cluster
+configuration which involves other nodes which are not currently
+contactable. This is unsafe because those other nodes might not be
+fresh nodes: the intention would be for the fresh node to sync with
+those other nodes and preserve the data those nodes hold. When those
+other nodes eventually return, manual intervention is then required to
+throw away some data and preserve others. The Clusterer, by contrast,
+would wait until it could either verify that all the nodes to be part
+of the cluster are fresh (so there is no data to preserve at all), or
+failing that would wait until one of the non-fresh nodes was fully up
+and running, at which point it could sync with that node.
 
 * version: non negative integer
     
@@ -146,7 +157,7 @@ unsafe actions.
       
       By contrast, if *A* comes back and has been reset but is now
       running a younger config than *B* and *C*, then that younger
-      config will propogate to *B* and *C*. If *A* is named as the
+      config will propagate to *B* and *C*. If *A* is named as the
       gospel in the new younger config, then that refers to the data
       held by the new younger *A*, and so *B* and *C* will reset as
       necessary.
