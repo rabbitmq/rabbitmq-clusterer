@@ -8,11 +8,10 @@
 
 -export([rabbit_booted/0]).
 
--rabbit_boot_step(
-   {rabbit_clusterer,
-    [{description, "Declarative Clustering"},
-     {mfa, {?MODULE, rabbit_booted, []}},
-     {requires, networking}]}).
+-rabbit_boot_step({rabbit_clusterer,
+                   [{description, "Declarative Clustering"},
+                    {mfa, {?MODULE, rabbit_booted, []}},
+                    {requires, networking}]}).
 
 -define(APP, rabbitmq_clusterer).
 
