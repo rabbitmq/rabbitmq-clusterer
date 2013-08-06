@@ -66,10 +66,12 @@ default_config() ->
 
 create_node_id() ->
     %% We can't use rabbit_guid here because it may not have been
-    %% started at this stage. In reality, this isn't a massive
-    %% problem: the fact we need to create a node_id implies that
-    %% we're a fresh node, so the guid serial will be 0 anyway.
-    erlang:md5(term_to_binary({node(), make_ref()})).
+    %% started at this stage. We only need a fresh node_id when we're
+    %% a virgin node. But we also want to ensure that when we are a
+    %% virgin node our node id will be different from if we existed
+    %% previously, hence the use of now() which can go wrong if time
+    %% is set backwards, but we hope that won't happen.
+    erlang:md5(term_to_binary({node(), now()})).
 
 required_keys() ->
     [nodes, version, gospel, shutdown_timeout].
