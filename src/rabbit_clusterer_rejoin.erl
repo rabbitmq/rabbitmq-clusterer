@@ -80,7 +80,7 @@
 %% then a new config is applied to B. If that were to happen then that
 %% would clearly invalidate the config that A is also using. B will
 %% forward new config to A too. B and A will both restart their comms,
-%% in any other. If B goes first, we don't want B to be held up, so
+%% in any order. If B goes first, we don't want B to be held up, so
 %% B's lock is actually managed by its comms (i.e. comms both takes
 %% the lock and owns the lock). So when B restarts its comms, it's
 %% unlocking itself too.
