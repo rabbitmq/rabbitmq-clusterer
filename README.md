@@ -39,7 +39,7 @@ a cluster: the Clusterer will take care of distributing the config to
 all the other nodes as necessary.
 
     [{version, 43},
-     {nodes, [{rabbit@hostA, {rabbit@hostB, ram}, {rabbit@hostD, disc}}]},
+     {nodes, [{{rabbit@hostA, disc}, {rabbit@hostB, ram}, {rabbit@hostD, disc}}]},
      {gospel, {node, rabbit@hostD}},
      {shutdown_timeout, 30}]
 
