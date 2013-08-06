@@ -74,11 +74,9 @@ create_node_id() ->
     %% is set backwards, but we hope that won't happen.
     erlang:md5(term_to_binary({node(), now()})).
 
-required_keys() ->
-    [nodes, version, gospel, shutdown_timeout].
+required_keys() -> [nodes, version, gospel, shutdown_timeout].
 
-optional_keys() ->
-    [{map_node_id, orddict:new()}].
+optional_keys() -> [{map_node_id, orddict:new()}].
 
 record_config_to_proplist(NodeID, Config = #config {}) ->
     Fields = record_info(fields, config),
