@@ -32,21 +32,16 @@
 
 -include("rabbit_clusterer.hrl").
 
-start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+start_link() -> gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
-begin_coordination() ->
-    gen_server:cast(?SERVER, begin_coordination).
+begin_coordination() -> gen_server:cast(?SERVER, begin_coordination).
 
-rabbit_booted() ->
-    gen_server:cast(?SERVER, rabbit_booted),
-    ok.
+rabbit_booted() -> gen_server:cast(?SERVER, rabbit_booted).
 
 send_new_config(Config, Node) when is_atom(Node) ->
     %% Node may be undefined. gen_server:cast doesn't error. This is
     %% what we want.
-    gen_server:cast({?SERVER, Node}, template_new_config(Config)),
-    ok;
+    gen_server:cast({?SERVER, Node}, template_new_config(Config));
 send_new_config(_Config, []) ->
     ok;
 send_new_config(Config, Nodes) when is_list(Nodes) ->
@@ -54,26 +49,24 @@ send_new_config(Config, Nodes) when is_list(Nodes) ->
                lists:usort(Nodes), ?SERVER, template_new_config(Config)),
     ok.
 
-template_new_config(Config) ->
-    {new_config, Config, node()}.
+template_new_config(Config) -> {new_config, Config, node()}.
 
 apply_config(Config) ->
     gen_server:call(?SERVER, {apply_config, Config}, infinity).
 
 %%----------------------------------------------------------------------------
 
-init([]) ->
-    {ok, #state { node_id            = undefined,
-                  status             = preboot,
-                  config             = undefined,
-                  transitioner_state = undefined,
-                  comms              = undefined,
-                  nodes              = [],
-                  alive_mrefs        = [],
-                  dead               = [],
-                  poke_timer_ref     = undefined,
-                  booted             = false
-                }}.
+init([]) -> {ok, #state { node_id            = undefined,
+                          status             = preboot,
+                          config             = undefined,
+                          transitioner_state = undefined,
+                          comms              = undefined,
+                          nodes              = [],
+                          alive_mrefs        = [],
+                          dead               = [],
+                          poke_timer_ref     = undefined,
+                          booted             = false
+                        }}.
 
 
 %%----------------
@@ -350,11 +343,9 @@ handle_info(Msg, State) ->
     {stop, {unhandled_info, Msg}, State}.
 
 
-terminate(_Reason, _State) ->
-    ok.
+terminate(_Reason, _State) -> ok.
 
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
+code_change(_OldVsn, State, _Extra) -> {ok, State}.
 
 
 %%----------------------------------------------------------------------------
