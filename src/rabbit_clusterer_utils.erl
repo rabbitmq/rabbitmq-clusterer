@@ -40,17 +40,14 @@ choose_external_or_internal(NewConfig, undefined) ->
 choose_external_or_internal(undefined, {NodeID, OldConfig}) ->
     {NodeID, OldConfig, OldConfig};
 choose_external_or_internal(NewConfig, {NodeID, OldConfig}) ->
-    case rabbit_clusterer_utils:compare_configs(NewConfig, OldConfig) of
-        gt ->
-            %% New cluster config has been applied
-            {NodeID, NewConfig, OldConfig};
-        invalid ->
-            error_logger:info_msg(
-              "Ignoring invalid user-provided configuration", []),
-            {NodeID, OldConfig, OldConfig};
-        _ ->
-            %% All other cases, we ignore the user-provided config.
-            {NodeID, OldConfig, OldConfig}
+    case compare_configs(NewConfig, OldConfig) of
+        gt      -> %% New cluster config has been applied
+                   {NodeID, NewConfig, OldConfig};
+        invalid -> error_logger:info_msg(
+                     "Ignoring invalid user-provided configuration", []),
+                   {NodeID, OldConfig, OldConfig};
+        _       -> %% All other cases, we ignore the user-provided config.
+                   {NodeID, OldConfig, OldConfig}
     end.
 
 %% Note that here we intentionally deal with NodeID being in the

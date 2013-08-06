@@ -211,21 +211,18 @@ handle_cast({new_config, ConfigRemote, Node},
     %% a) know what our config really is; b) it's safe to begin
     %% transitions to other configurations.
     case rabbit_clusterer_utils:compare_configs(ConfigRemote, Config) of
-        lt ->
-            ok = send_new_config(Config, Node),
-            {noreply, State};
-        gt ->
-            %% Remote is younger. We should switch to it. We
-            %% deliberately do not merge across the configs at this
-            %% stage as it would break melisma detection.
-            %% begin_transition will reboot if necessary.
-            {noreply, begin_transition(ConfigRemote, State)};
-        _ ->
-            %% eq and invalid. In both cases we just ignore. If
-            %% invalid, the fact is that we are stable - either
-            %% running or pending_shutdown, so we don't want to
-            %% disturb that.
-            {noreply, State}
+        lt -> ok = send_new_config(Config, Node),
+              {noreply, State};
+        gt -> %% Remote is younger. We should switch to it. We
+              %% deliberately do not merge across the configs at this
+              %% stage as it would break melisma detection.
+              %% begin_transition will reboot if necessary.
+              {noreply, begin_transition(ConfigRemote, State)};
+        _  -> %% eq and invalid. In both cases we just ignore. If
+              %% invalid, the fact is that we are stable - either
+              %% running or pending_shutdown, so we don't want to
+              %% disturb that.
+              {noreply, State}
     end;
 
 handle_cast(rabbit_booted, State = #state { status = booting }) ->
