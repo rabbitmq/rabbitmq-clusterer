@@ -266,11 +266,16 @@ There are a couple of ways to specify a cluster config:
   This will cause the Clusterer to attempt to load the indicated file
   as a cluster config and apply it. Using this method rather than the
   above allows the path to change dynamically and does not depend on
-  any entries in the `rabbitmq.config` file.
+  any entries in the `rabbitmq.config` file. he path provided here is
+  not retained in any way: providing the path here does not influence
+  future calls to `rabbit_clusterer:apply_config().` - using
+  `rabbit_clusterer:apply_config().` *always* attempts to inspect the
+  path as found in `rabbitmq.config` when the node was started.
   
   Note if you really want to, rather than suppling a path to a file,
   you can supply the cluster config as a proplist directly, just as
   you can in the `rabbitmq.config` file itself.
+
 
 ### Mistakes in config files
 
