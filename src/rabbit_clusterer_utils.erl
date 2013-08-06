@@ -75,9 +75,13 @@ proplist_config_to_record(Proplist) when is_list(Proplist) ->
                             Value = proplists:get_value(FieldName, Proplist1),
                             {Pos + 1, setelement(Pos, ConfigN, Value)}
                     end, {2, #config {}}, Fields),
-    ok = validate_config(Config),
-    {proplists:get_value(node_id, Proplist1),
-     Config #config { nodes = normalise_nodes(Nodes) }}.
+    case validate_config(Config) of
+        ok ->
+            {ok, proplists:get_value(node_id, Proplist1),
+             Config #config { nodes = normalise_nodes(Nodes) }};
+        {error, _} = Err ->
+            Err
+    end.
 
 check_required_keys(Proplist) ->
     case required_keys() -- proplists:get_keys(Proplist) of
