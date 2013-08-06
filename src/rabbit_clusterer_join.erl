@@ -32,31 +32,9 @@ event({comms, {[], _BadNodes}}, State = #state { status = awaiting_status }) ->
 event({comms, {Replies, BadNodes}}, State = #state { status  = awaiting_status,
                                                      config  = Config,
                                                      node_id = NodeID }) ->
-    {Youngest, OlderThanUs, Statuses} =
-        lists:foldr(
-          fun (_Reply, {YoungestN, OlderThanUsN, _StatusesN} = Acc)
-              when YoungestN =:= invalid orelse OlderThanUsN =:= invalid ->
-                  Acc;
-              ({_Node, preboot}, {YoungestN, OlderThanUsN, StatusesN}) ->
-                  {YoungestN, OlderThanUsN, [preboot | StatusesN]};
-              ({Node, {ConfigN, StatusN}},
-               {YoungestN, OlderThanUsN, StatusesN}) ->
-                  {case rabbit_clusterer_utils:compare_configs(ConfigN,
-                                                               YoungestN) of
-                       invalid -> invalid;
-                       lt      -> YoungestN;
-                       _       -> %% i.e. gt *or* eq - must merge if eq too!
-                                  rabbit_clusterer_utils:merge_configs(
-                                    NodeID, ConfigN, YoungestN)
-                   end,
-                   case rabbit_clusterer_utils:compare_configs(ConfigN,
-                                                               Config) of
-                       invalid -> invalid;
-                       lt      -> [Node | OlderThanUsN];
-                       _       -> OlderThanUsN
-                   end,
-                   [StatusN | StatusesN]}
-          end, {Config, [], []}, Replies),
+    {Youngest, OlderThanUs, StatusDict} =
+        rabbit_clusterer_utils:categorise_configs(Replies, Config, NodeID),
+    Statuses = dict:fetch_keys(StatusDict),
     case Youngest =:= invalid orelse OlderThanUs =:= invalid of
         true ->
             {invalid_config, Config};

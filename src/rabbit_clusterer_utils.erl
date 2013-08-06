@@ -10,9 +10,10 @@
          add_node_id/4,
          compare_configs/2,
          detect_melisma/2,
-         nodenames/1,
          node_in_config/2,
          node_in_config/1,
+         nodenames/1,
+         categorise_configs/3,
          stop_mnesia/0,
          ensure_start_mnesia/0,
          stop_rabbit/0,
@@ -316,6 +317,29 @@ nodenames(#config { nodes = Nodes }) ->
 nodenames(Nodes) when is_list(Nodes) ->
     [N || {N, _} <- Nodes].
 
+categorise_configs(NodeConfigList, Config, NodeID) ->
+    lists:foldr(
+      fun (_Relpy, {YoungestN, OlderThanUsN, _StatusDictN} = Acc)
+            when YoungestN =:= invalid orelse OlderThanUsN =:= invalid ->
+              Acc;
+          ({N, preboot}, {YoungestN, OlderThanUsN, StatusDictN}) ->
+              {YoungestN, OlderThanUsN, dict:append(preboot, N, StatusDictN)};
+          ({N, {ConfigN, StatusN}}, {YoungestN, OlderThanUsN, StatusDictN}) ->
+              {case rabbit_clusterer_utils:compare_configs(ConfigN,
+                                                           YoungestN) of
+                   invalid -> invalid;
+                   lt      -> YoungestN;
+                   _       -> %% i.e. gt *or* eq - must merge if eq too!
+                              merge_configs(NodeID, ConfigN, YoungestN)
+               end,
+               case rabbit_clusterer_utils:compare_configs(ConfigN,
+                                                           Config) of
+                   invalid -> invalid;
+                   lt      -> [N | OlderThanUsN];
+                   _       -> OlderThanUsN
+               end,
+               dict:append(StatusN, N, StatusDictN)}
+      end, {Config, [], dict:new()}, NodeConfigList).
 
 %%----------------------------------------------------------------------------
 %% Node ID and mnesia

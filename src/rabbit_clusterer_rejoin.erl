@@ -103,30 +103,7 @@ event({comms, {Replies, BadNodes}}, State = #state { status  = awaiting_status,
                                                      config  = Config,
                                                      node_id = NodeID }) ->
     {Youngest, OlderThanUs, StatusDict} =
-        lists:foldr(
-          fun (_Relpy, {YoungestN, OlderThanUsN, _StatusDictN} = Acc)
-                when YoungestN =:= invalid orelse OlderThanUsN =:= invalid ->
-                  Acc;
-              ({Node, preboot}, {YoungestN, OlderThanUsN, StatusDictN}) ->
-                  {YoungestN, OlderThanUsN, dict:append(preboot, Node, StatusDictN)};
-              ({Node, {ConfigN, StatusN}},
-               {YoungestN, OlderThanUsN, StatusDictN}) ->
-                  {case rabbit_clusterer_utils:compare_configs(ConfigN,
-                                                               YoungestN) of
-                       invalid -> invalid;
-                       lt      -> YoungestN;
-                       _       -> %% i.e. gt *or* eq - must merge if eq too!
-                                  rabbit_clusterer_utils:merge_configs(
-                                    NodeID, ConfigN, YoungestN)
-                   end,
-                   case rabbit_clusterer_utils:compare_configs(ConfigN,
-                                                               Config) of
-                       invalid -> invalid;
-                       lt      -> [Node | OlderThanUsN];
-                       _       -> OlderThanUsN
-                   end,
-                   dict:append(StatusN, Node, StatusDictN)}
-          end, {Config, [], dict:new()}, Replies),
+        rabbit_clusterer_utils:categorise_configs(Replies, Config, NodeID),
     case Youngest =:= invalid orelse OlderThanUs =:= invalid of
         true ->
             {invalid_config, Config};
