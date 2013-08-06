@@ -392,18 +392,17 @@ load_external_config(PathOrProplist) when is_list(PathOrProplist) ->
                          end
         end,
     case Proplist of
-        undefined ->
-            undefined;
-        _ ->
-            case rabbit_clusterer_utils:proplist_config_to_record(Proplist) of
-                {ok, _NodeID, Config} ->
-                    Config;
-                {error, E} ->
-                    error_logger:info_msg(
-                      "Ignoring external configuration due to error: ~p~n",
-                      [E]),
-                    undefined
-            end
+        undefined -> undefined;
+        _         -> case rabbit_clusterer_utils:proplist_config_to_record(
+                            Proplist) of
+                         {ok, _NodeID, Config} ->
+                             Config;
+                         {error, E} ->
+                             error_logger:info_msg(
+                               "Ignoring external configuration due to error: "
+                               "~p~n", [E]),
+                             undefined
+                     end
     end;
 load_external_config(_) ->
     undefined.
