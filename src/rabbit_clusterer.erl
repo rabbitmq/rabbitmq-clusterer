@@ -4,7 +4,7 @@
 
 -export([start/2, stop/1, boot/0, apply_config/0, apply_config/1]).
 
--export([begin_clustering/0, rabbit_booted/0]).
+-export([rabbit_booted/0]).
 
 -rabbit_boot_step(
    {rabbit_clusterer,
@@ -20,20 +20,19 @@ start(normal, []) ->
 stop(_State) ->
     ok.
 
-begin_clustering() ->
+boot() ->
     ok = rabbit_clusterer_utils:stop_mnesia(),
     %% We need to ensure the app is already started:
     ok = application:ensure_started(?APP),
-    %% deliberate badmatch against shutdown. TODO tidy/improve
     ok = rabbit_clusterer_coordinator:begin_coordination(),
     ok.
 
 rabbit_booted() ->
     ok = rabbit_clusterer_coordinator:rabbit_booted().
 
-boot() ->
-    ok = begin_clustering().
-
+%% Apply_config allows cluster configs to be dynamically applied to a
+%% running system. Currently that's best done by rabbitmqctl eval, but
+%% may be improved in the future.
 apply_config() ->
     apply_config(undefined).
 

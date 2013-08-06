@@ -157,6 +157,8 @@ validate_config_key(nodes, Nodes, _Config) when is_list(Nodes) ->
         {ok, true, false} ->
             {error, rabbit_misc:format(
                       "Some nodes specified more than once: ~p", [NodeNames])};
+        {ok, false, _} when length(NodeNames) =:= 0 ->
+            ok;
         {ok, false, _} ->
             {error, rabbit_misc:format(
                       "Require at least one disc node: ~p", [Nodes])};

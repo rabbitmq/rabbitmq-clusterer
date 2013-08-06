@@ -98,6 +98,8 @@ handle_call({request_status, _NewNode, _NewNodeID}, _From,
     %% Status \in {pending_shutdown, booting, ready}
     {reply, {Config, Status}, reschedule_shutdown(State)};
 
+%% This is where a call from TModule on one node to TModule on another
+%% node lands.
 handle_call({{transitioner, _TModule} = Status, Msg}, From,
             State = #state { status = Status }) ->
     Fun = fun (Result) -> gen_server:reply(From, Result), ok end,
@@ -258,8 +260,10 @@ handle_cast({new_config, ConfigRemote, Node},
             %% begin_transition will reboot if necessary.
             {noreply, begin_transition(ConfigRemote, State)};
         _ ->
-            %% eq and invalid. We might want eventually to do
-            %% something more active on invalid. TODO
+            %% eq and invalid. In both cases we just ignore. If
+            %% invalid, the fact is that we are stable - either
+            %% running or pending_shutdown, so we don't want to
+            %% disturb that.
             {noreply, State}
     end;
 
@@ -484,7 +488,8 @@ begin_transition(NewConfig, State = #state { node_id = NodeID,
                 noop ->
                     ok = write_internal_config(NodeID, NewConfig1),
                     error_logger:info_msg(
-                      "Clusterer seemlessly transitioned to new configuration:~n~p~n",
+                      "Clusterer seemlessly transitioned to new "
+                      "configuration:~n~p~n",
                       [rabbit_clusterer_utils:record_config_to_proplist(
                          NodeID, NewConfig1)]),
                     update_monitoring(
@@ -540,7 +545,18 @@ process_transitioner_response({config_changed, ConfigNew}, State) ->
     begin_transition(ConfigNew, State);
 process_transitioner_response({sleep, Delay, Event, TState}, State) ->
     erlang:send_after(Delay, self(), {transitioner_delay, Event}),
-    State #state { transitioner_state = TState }.
+    State #state { transitioner_state = TState };
+process_transitioner_response({invalid_config, Config},
+                              State = #state { node_id = NodeID }) ->
+    %% An invalid config was detected somewhere. We shut ourselves
+    %% down, but we do not write out the config. Do not
+    %% update_monitoring either.
+    State1 = stop_comms(State #state { transitioner_state = undefined }),
+    error_logger:info_msg("Multiple different configurations with equal "
+                          "version numbers detected. Shutting down.~n~p~n",
+                          [rabbit_clusterer_utils:record_config_to_proplist(
+                             NodeID, Config)]),
+    set_status(shutdown, set_status(pending_shutdown, State1)).
 
 
 fresh_comms(State) ->

@@ -104,14 +104,16 @@ event({comms, {Replies, BadNodes}}, State = #state { status  = awaiting_status,
                                                      node_id = NodeID }) ->
     {Youngest, OlderThanUs, StatusDict} =
         lists:foldr(
-          fun ({Node, preboot}, {YoungestN, OlderThanUsN, StatusDictN}) ->
+          fun (_Relpy, {YoungestN, OlderThanUsN, _StatusDictN} = Acc)
+                when YoungestN =:= invalid orelse OlderThanUsN =:= invalid ->
+                  Acc;
+              ({Node, preboot}, {YoungestN, OlderThanUsN, StatusDictN}) ->
                   {YoungestN, OlderThanUsN, dict:append(preboot, Node, StatusDictN)};
               ({Node, {ConfigN, StatusN}},
                {YoungestN, OlderThanUsN, StatusDictN}) ->
                   {case rabbit_clusterer_utils:compare_configs(ConfigN,
                                                                YoungestN) of
-                       invalid -> %% TODO tidy this up - probably shouldn't be a throw.
-                                  throw("Configs with same version numbers but semantically different");
+                       invalid -> invalid;
                        lt      -> YoungestN;
                        _       -> %% i.e. gt *or* eq - must merge if eq too!
                                   rabbit_clusterer_utils:merge_configs(
@@ -119,84 +121,94 @@ event({comms, {Replies, BadNodes}}, State = #state { status  = awaiting_status,
                    end,
                    case rabbit_clusterer_utils:compare_configs(ConfigN,
                                                                Config) of
-                       invalid -> %% TODO tidy this up - probably shouldn't be a throw.
-                                  throw("Configs with same version numbers but semantically different");
+                       invalid -> invalid;
                        lt      -> [Node | OlderThanUsN];
                        _       -> OlderThanUsN
                    end,
                    dict:append(StatusN, Node, StatusDictN)}
           end, {Config, [], dict:new()}, Replies),
-    case rabbit_clusterer_utils:compare_configs(Youngest, Config) of
-        eq ->
-            MyNode = node(),
-            case OlderThanUs of
-                [_|_] ->
-                    update_remote_nodes(OlderThanUs, Youngest, State);
-                [] ->
-                    %% Everyone who's here is on the same config as
-                    %% us. If anyone is running then we can just
-                    %% declare success and trust mnesia to join into
-                    %% them.
-                    State1 = State #state { config = Youngest },
-                    #config { nodes = Nodes } = Youngest,
-                    SomeoneRunning = dict:is_key(ready, StatusDict),
-                    IsRam = ram =:= proplists:get_value(MyNode, Nodes),
-                    if
-                        SomeoneRunning ->
-                            %% Someone is running, so we should be
-                            %% able to cluster to them.
-                            {success, Youngest};
-                        IsRam ->
-                            %% We're ram; can't do anything but wait
-                            %% for someone else
-                            delayed_request_status(State1);
-                        true ->
-                            {_All, _Disc, Running} =
-                                rabbit_node_monitor:read_cluster_status(),
-                            DiscSet = ordsets:from_list(
-                                        [N || {N, disc} <- Nodes]),
-                            %% Intersect with Running and remove MyNode
-                            DiscRunningSet =
-                                ordsets:del_element(
-                                  MyNode,
-                                  ordsets:intersection(
-                                    DiscSet, ordsets:from_list(Running))),
-                            BadNodesSet = ordsets:from_list(BadNodes),
-                            Joining =
-                                case dict:find({transitioner, rabbit_clusterer_join}, StatusDict) of
-                                    {ok, List} -> List;
-                                    error      -> []
-                                end,
-                            NotJoiningSet = ordsets:subtract(
-                                              DiscRunningSet, ordsets:from_list(Joining)),
-                            State2 = State1 #state { awaiting = ordsets:to_list(NotJoiningSet),
-                                                     joining  = Joining },
-                            case ordsets:is_disjoint(DiscRunningSet, BadNodesSet) of
+    case Youngest =:= invalid orelse OlderThanUs =:= invalid of
+        true ->
+            {invalid_config, Config};
+        false ->
+            case rabbit_clusterer_utils:compare_configs(Youngest, Config) of
+                eq ->
+                    MyNode = node(),
+                    case OlderThanUs of
+                        [_|_] ->
+                            update_remote_nodes(OlderThanUs, Youngest, State);
+                        [] ->
+                            %% Everyone who's here is on the same
+                            %% config as us. If anyone is running then
+                            %% we can just declare success and trust
+                            %% mnesia to join into them.
+                            State1 = State #state { config = Youngest },
+                            #config { nodes = Nodes } = Youngest,
+                            SomeoneRunning = dict:is_key(ready, StatusDict),
+                            IsRam = ram =:= proplists:get_value(MyNode, Nodes),
+                            if
+                                SomeoneRunning ->
+                                    %% Someone is running, so we
+                                    %% should be able to cluster to
+                                    %% them.
+                                    {success, Youngest};
+                                IsRam ->
+                                    %% We're ram; can't do anything
+                                    %% but wait for someone else
+                                    delayed_request_status(State1);
                                 true ->
-                                    %% Everyone we depend on is alive in some form.
-                                    case ordsets:size(NotJoiningSet) of
-                                        0 ->
-                                            %% We win!
-                                            lock_nodes(State2);
-                                        _ ->
-                                            case dict:find({transitioner, ?MODULE}, StatusDict) of
-                                                error ->
-                                                    %% No one else is rejoining, nothing we can do but wait.
-                                                    delayed_request_status(State2);
-                                                {ok, Rejoining} ->
-                                                    collect_dependency_graph(Rejoining, State2)
-                                            end
-                                    end;
-                                false ->
-                                    %% We might depend on a node in
-                                    %% BadNodes. We must wait for it
-                                    %% to appear.
-                                    delayed_request_status(State2)
+                                    {_All, _Disc, Running} =
+                                        rabbit_node_monitor:read_cluster_status(),
+                                    DiscSet = ordsets:from_list(
+                                                [N || {N, disc} <- Nodes]),
+                                    %% Intersect with Running and
+                                    %% remove MyNode
+                                    DiscRunningSet =
+                                        ordsets:del_element(
+                                          MyNode,
+                                          ordsets:intersection(
+                                            DiscSet,
+                                            ordsets:from_list(Running))),
+                                    BadNodesSet = ordsets:from_list(BadNodes),
+                                    Joining =
+                                        case dict:find(
+                                               {transitioner, rabbit_clusterer_join},
+                                               StatusDict) of
+                                            {ok, List} -> List;
+                                            error      -> []
+                                        end,
+                                    NotJoiningSet = ordsets:subtract(
+                                                      DiscRunningSet, ordsets:from_list(Joining)),
+                                    State2 = State1 #state { awaiting = ordsets:to_list(NotJoiningSet),
+                                                             joining  = Joining },
+                                    case ordsets:is_disjoint(DiscRunningSet, BadNodesSet) of
+                                        true ->
+                                            %% Everyone we depend on is alive in some form.
+                                            case ordsets:size(NotJoiningSet) of
+                                                0 ->
+                                                    %% We win!
+                                                    lock_nodes(State2);
+                                                _ ->
+                                                    case dict:find({transitioner, ?MODULE}, StatusDict) of
+                                                        error ->
+                                                            %% No one else is rejoining, nothing we can do but wait.
+                                                            delayed_request_status(State2);
+                                                        {ok, Rejoining} ->
+                                                            collect_dependency_graph(Rejoining, State2)
+                                                    end
+                                            end;
+                                        false ->
+                                            %% We might depend on a
+                                            %% node in BadNodes. We
+                                            %% must wait for it to
+                                            %% appear.
+                                            delayed_request_status(State2)
+                                    end
                             end
-                    end
-            end;
-        _ ->
-            {config_changed, Youngest}
+                    end;
+                _ ->
+                    {config_changed, Youngest}
+            end
     end;
 event({comms, {Replies, BadNodes}}, State = #state { status = awaiting_awaiting,
                                                      awaiting = MyAwaiting }) ->
@@ -225,23 +237,15 @@ event({comms, {Replies, BadNodes}}, State = #state { status = awaiting_awaiting,
                                               T <- Awaiting],
                 CSC = digraph_utils:cyclic_strong_components(G),
                 [OurComponent] = [C || C <- CSC, lists:member(MyNode, C)],
-                case OurComponent of
-                    [MyNode] ->
-                        %% We're on our own anyway so can't do anything
-                        delayed_request_status(State);
-                    _ ->
-                        %% Detect if there are any outbound edges from
-                        %% this component
-                        case [N || V <- OurComponent,
-                                   N <- digraph:out_neighbours(G, V),
-                                   not lists:member(N, OurComponent) ] of
-                            [] ->
-                                %% We appear to be in the "root"
-                                %% component. Begin the fight.
-                                lock_nodes(State);
-                            _ ->
-                                delayed_request_status(State)
-                        end
+                %% Detect if there are any outbound edges from this
+                %% component
+                case [N || V <- OurComponent,
+                           N <- digraph:out_neighbours(G, V),
+                           not lists:member(N, OurComponent) ] of
+                    [] -> %% We appear to be in the "root"
+                          %% component. Begin the fight.
+                          lock_nodes(State);
+                    _  -> delayed_request_status(State)
                 end
             after
                 true = digraph:delete(G)
