@@ -399,7 +399,7 @@ begin_transition(NewConfig, State = #state { node_id = NodeID,
                            NodeID, NewConfig, OldConfig),
             case Action of
                 noop ->
-                    ok = rabbit_clusterer_config:write_internal(
+                    ok = rabbit_clusterer_config:store_internal(
                            NodeID, NewConfig1),
                     error_logger:info_msg(
                       "Clusterer seemlessly transitioned to new "
@@ -444,7 +444,7 @@ process_transitioner_response({SuccessOrShutdown, ConfigNew},
     %% config applied to us that tells us to shutdown, we must record
     %% that config, otherwise we can later be restarted and try to
     %% start up with an outdated config.
-    ok = rabbit_clusterer_config:write_internal(NodeID, ConfigNew),
+    ok = rabbit_clusterer_config:store_internal(NodeID, ConfigNew),
     State1 = stop_comms(State #state { transitioner_state = undefined,
                                        config             = ConfigNew }),
     case SuccessOrShutdown of

@@ -2,7 +2,7 @@
 
 -include("rabbit_clusterer.hrl").
 
--export([load_external/0, load_external/1, load_internal/0, write_internal/2,
+-export([load_external/0, load_external/1, load_internal/0, store_internal/2,
          choose_external_or_internal/2, to_proplist/2, from_proplist/1,
          validate/1, merge/3, add_node_id/4, compare/2, detect_melisma/2,
          contains_node/2, nodenames/1, categorise/3]).
@@ -53,7 +53,7 @@ load_internal() ->
                      {NodeID, Config}
     end.
 
-write_internal(NodeID, Config) ->
+store_internal(NodeID, Config) ->
     Proplist = rabbit_clusterer_config:to_proplist(NodeID, Config),
     ok = rabbit_file:write_term_file(internal_path(), [Proplist]).
 
