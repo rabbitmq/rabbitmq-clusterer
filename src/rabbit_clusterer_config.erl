@@ -299,24 +299,20 @@ add_node_id(NewNode, NewNodeID, NodeID,
     %% Note that if NewNode isn't in Config then tidy_node_id_maps
     %% will do the right thing, and also that Changed will always be
     %% false.
-    Changed =
-        case orddict:find(NewNode, NodeToID) of
-            error            -> false;
-            {ok, NewNodeID}  -> false;
-            {ok, _NewNodeID} -> true
-        end,
-    {Changed, tidy_node_id_maps(
-                NodeID, Config #config {
-                          map_node_id =
-                              orddict:store(NewNode, NewNodeID, NodeToID) })}.
+    Changed = case orddict:find(NewNode, NodeToID) of
+                  error            -> false;
+                  {ok, NewNodeID}  -> false;
+                  {ok, _NewNodeID} -> true
+              end,
+    NodeToID1 = orddict:store(NewNode, NewNodeID, NodeToID),
+    {Changed, tidy_node_id_maps(NodeID,
+                                Config #config {map_node_id = NodeToID1 })}.
 
 %% We very deliberately completely ignore the map_* fields here. They
 %% are not semantically important from the POV of config equivalence.
-compare(#config { version = V, gospel = GA, nodes = NA,
-                  shutdown_timeout = STA },
-        #config { version = V, gospel = GB, nodes = NB,
-                  shutdown_timeout = STB }) ->
-    case {[GA, STA, lists:usort(NA)], [GB, STB, lists:usort(NB)]} of
+compare(#config { version = V, gospel = GA, nodes = NA, shutdown_timeout = TA },
+        #config { version = V, gospel = GB, nodes = NB, shutdown_timeout = TB }) ->
+    case {{GA, lists:usort(NA), TA}, {GB, lists:usort(NB), TB}} of
         {EQ, EQ} -> eq;
         _        -> invalid
     end;
@@ -345,25 +341,19 @@ detect_melisma(#config {}, undefined) ->
     false;
 detect_melisma(#config { gospel = {node, Node}, map_node_id = MapNodeIDNew },
                ConfigOld = #config { map_node_id = MapNodeIDOld }) ->
-    case contains_node(node(), ConfigOld) of
-        true ->
-            case contains_node(Node, ConfigOld) of
-                true  -> case {orddict:find(Node, MapNodeIDNew),
-                               orddict:find(Node, MapNodeIDOld)} of
-                             {{ok, IdA}, {ok, IdB}} when IdA =/= IdB -> false;
-                             {_        , _        }                  -> true
-                         end;
-                false -> false
-            end;
-        false ->
-            false
+    case (contains_node(node(), ConfigOld) andalso
+          contains_node(Node,   ConfigOld)) of
+        true  -> case {orddict:find(Node, MapNodeIDNew),
+                       orddict:find(Node, MapNodeIDOld)} of
+                     {{ok, IdA}, {ok, IdB}} when IdA =/= IdB -> false;
+                     {_        , _        }                  -> true
+                 end;
+        false -> false
     end.
 
-contains_node(Node, #config { nodes = Nodes }) ->
-    orddict:is_key(Node, Nodes).
+contains_node(Node, #config { nodes = Nodes }) -> orddict:is_key(Node, Nodes).
 
-nodenames(#config { nodes = Nodes }) ->
-    orddict:fetch_keys(Nodes).
+nodenames(#config { nodes = Nodes }) -> orddict:fetch_keys(Nodes).
 
 disc_nodenames(#config { nodes = Nodes }) ->
     orddict:fetch_keys(orddict:filter(fun (_K, V) -> V =:= disc end, Nodes)).
