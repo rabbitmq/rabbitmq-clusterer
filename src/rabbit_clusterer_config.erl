@@ -132,10 +132,10 @@ required_keys() -> [nodes, version, gospel, shutdown_timeout].
 
 optional_keys() -> [{map_node_id, orddict:new()}].
 
-field_fold(Fun, Acc0) ->
+field_fold(Fun, Init) ->
     {_Pos, Res} = lists:foldl(fun (FieldName, {Pos, Acc}) ->
                                       {Pos + 1, Fun(FieldName, Pos, Acc)}
-                              end, {2, Acc0}, record_info(fields, config)),
+                              end, {2, Init}, record_info(fields, config)),
     Res.
 
 to_proplist(NodeID, Config = #config {}) ->
