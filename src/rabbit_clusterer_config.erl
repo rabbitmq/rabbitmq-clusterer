@@ -22,19 +22,18 @@ load(#config {} = C) -> case validate(C) of
 load(PathOrPropList) -> load_external(PathOrPropList).
 
 load(NodeID, Config) ->
-    ExternalConfig =
-        case load_external() of
-            {ok, ExternalConfig1} -> ExternalConfig1;
-            {error, Error}        -> error_logger:info_msg(
-                                       "Ignoring external configuration due to "
-                                       "error: ~p~n", [Error]),
-                                     undefined
-        end,
-    InternalConfig = case Config of
-                         undefined -> load_internal();
-                         _         -> {NodeID, Config}
-                     end,
-    choose_external_or_internal(ExternalConfig, InternalConfig).
+    choose_external_or_internal(
+      case load_external() of
+          {ok, ExternalConfig} -> ExternalConfig;
+          {error, Error}       -> error_logger:info_msg(
+                                    "Ignoring external configuration due to "
+                                    "error: ~p~n", [Error]),
+                                  undefined
+      end,
+      case Config of
+          undefined -> load_internal();
+          _         -> {NodeID, Config}
+      end).
 
 load_external() ->
     case external_path() of
