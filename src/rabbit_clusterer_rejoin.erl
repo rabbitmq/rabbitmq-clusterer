@@ -194,14 +194,14 @@ event({request_config, NewNode, NewNodeID, Fun},
 event({request_awaiting, Fun}, State = #state { awaiting = Awaiting }) ->
     ok = Fun(Awaiting),
     {continue, State};
-event({new_config, ConfigRemote, Node},
-      State = #state { config = Config = #config { nodes = Nodes } }) ->
+event({new_config, ConfigRemote, Node}, State = #state { config = Config }) ->
     case rabbit_clusterer_config:compare(ConfigRemote, Config) of
         lt -> ok = rabbit_clusterer_coordinator:send_new_config(Config, Node),
               {continue, State};
         gt -> ok = rabbit_clusterer_coordinator:send_new_config(
                      ConfigRemote,
-                     [N || {N, _} <- Nodes, N =/= node(), N =/= Node ]),
+                     rabbit_clusterer_config:nodenames(Config) --
+                         [node(), Node]),
               {config_changed, ConfigRemote};
         _  -> %% ignore
               {continue, State}
@@ -215,9 +215,9 @@ collect_dependency_graph(RejoiningNodes, State = #state { comms = Comms }) ->
 
 request_status(State = #state { comms   = Comms,
                                 node_id = NodeID,
-                                config  = #config { nodes = Nodes } }) ->
+                                config  = Config }) ->
     MyNode = node(),
-    NodesNotUs = [ N || {N, _Mode} <- Nodes, N =/= MyNode ],
+    NodesNotUs = rabbit_clusterer_config:nodenames(Config) -- [MyNode],
     ok = rabbit_clusterer_comms:multi_call(
            NodesNotUs, {request_status, MyNode, NodeID}, Comms),
     {continue, State #state { status = awaiting_status }}.
@@ -235,7 +235,7 @@ maybe_rejoin(BadNodes, StatusDict,
     %% join into them.
     MyNode = node(),
     SomeoneRunning = dict:is_key(ready, StatusDict),
-    IsRam = ram =:= proplists:get_value(MyNode, Nodes),
+    IsRam = ram =:= orddict:fetch(MyNode, Nodes),
     if
         SomeoneRunning ->
             %% Someone is running, so we should be able to cluster to
@@ -246,7 +246,8 @@ maybe_rejoin(BadNodes, StatusDict,
             delayed_request_status(State);
         true ->
             {_All, _Disc, Running} = rabbit_node_monitor:read_cluster_status(),
-            DiscSet = ordsets:from_list([N || {N, disc} <- Nodes]),
+            DiscSet = ordsets:from_list(
+                        rabbit_clusterer_config:disc_nodenames(Config)),
             %% Intersect with Running and remove MyNode
             DiscRunningSet =
                 ordsets:del_element(

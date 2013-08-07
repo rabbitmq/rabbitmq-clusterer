@@ -75,8 +75,7 @@ event({request_config, NewNode, NewNodeID, Fun},
         true  -> {config_changed, Config1};
         false -> {continue, State #state { config = Config1 }}
     end;
-event({new_config, ConfigRemote, Node},
-      State = #state { config = Config = #config { nodes = Nodes } }) ->
+event({new_config, ConfigRemote, Node}, State = #state { config = Config }) ->
     case rabbit_clusterer_config:compare(ConfigRemote, Config) of
         lt -> ok = rabbit_clusterer_coordinator:send_new_config(Config, Node),
               {continue, State};
@@ -89,7 +88,8 @@ event({new_config, ConfigRemote, Node},
               %% there's no ordering issues to consider.
               ok = rabbit_clusterer_coordinator:send_new_config(
                      ConfigRemote,
-                     [N || {N, _} <- Nodes, N =/= node(), N =/= Node ]),
+                     rabbit_clusterer_config:nodenames(Config) --
+                         [node(), Node]),
               {config_changed, ConfigRemote};
         _  -> %% ignore
               {continue, State}
@@ -98,9 +98,9 @@ event({new_config, ConfigRemote, Node},
 
 request_status(State = #state { comms   = Comms,
                                 node_id = NodeID,
-                                config  = #config { nodes = Nodes } }) ->
+                                config  = Config }) ->
     MyNode = node(),
-    NodesNotUs = [ N || {N, _Mode} <- Nodes, N =/= MyNode ],
+    NodesNotUs = rabbit_clusterer_config:nodenames(Config) -- [MyNode],
     ok = rabbit_clusterer_comms:multi_call(
            NodesNotUs, {request_status, MyNode, NodeID}, Comms),
     {continue, State #state { status = awaiting_status }}.
@@ -184,7 +184,7 @@ cluster_with_nodes(#config { nodes = Nodes }) ->
     ok = rabbit_clusterer_utils:wipe_mnesia(),
     ok = rabbit_clusterer_utils:configure_cluster(Nodes).
 
-maybe_form_new_cluster(#config { nodes = Nodes, gospel = Gospel }) ->
+maybe_form_new_cluster(Config = #config { nodes = Nodes, gospel = Gospel }) ->
     %% Is it necessary to limit the election of a leader to disc
     %% nodes? No: we're only here when we have everyone in the cluster
     %% joining, so we know we wouldn't be creating a RAM-node-only
@@ -196,8 +196,10 @@ maybe_form_new_cluster(#config { nodes = Nodes, gospel = Gospel }) ->
     MyNode = node(),
     {Wipe, Leader} =
         case Gospel of
-            {node, Node} -> {Node =/= MyNode, Node};
-            reset        -> {true, lists:min([N || {N, disc} <- Nodes])}
+            {node, Node} ->
+                {Node =/= MyNode, Node};
+            reset ->
+                {true, lists:min(rabbit_clusterer_config:disc_nodenames(Config))}
         end,
     case Leader of
         MyNode ->
@@ -209,7 +211,7 @@ maybe_form_new_cluster(#config { nodes = Nodes, gospel = Gospel }) ->
                         rabbit_clusterer_utils:eliminate_mnesia_dependencies([])
                 end,
             ok = rabbit_clusterer_utils:configure_cluster(
-                   [proplists:lookup(MyNode, Nodes)]),
+                   [{MyNode, orddict:fetch(MyNode, Nodes)}]),
             true;
         _ ->
             false

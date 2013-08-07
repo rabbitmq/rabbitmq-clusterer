@@ -480,7 +480,7 @@ reschedule_shutdown(State) ->
     State.
 
 update_monitoring(
-  State = #state { config      = ConfigNew = #config { nodes = NodesNew },
+  State = #state { config      = ConfigNew,
                    nodes       = NodesOld,
                    alive_mrefs = AliveOld,
                    status      = Status })
@@ -490,7 +490,8 @@ update_monitoring(
     {NodeNamesNew, AliveNew} =
         case Status of
             ready ->
-                NodeNamesNew1 = [N || {N, _} <- NodesNew, N =/= node()],
+                NodeNamesNew1 =
+                    rabbit_clusterer_config:nodenames(ConfigNew) -- [node()],
                 {NodeNamesNew1,
                  [monitor(process, {?SERVER, N}) || N <- NodeNamesNew1]};
             pending_shutdown ->

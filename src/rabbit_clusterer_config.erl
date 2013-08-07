@@ -4,7 +4,7 @@
 
 -export([load/2, load/1, store_internal/2, to_proplist/2, from_proplist/1,
          merge/3, add_node_id/4, compare/2, detect_melisma/2,
-         contains_node/2, nodenames/1, categorise/3]).
+         contains_node/2, disc_nodenames/1, nodenames/1, categorise/3]).
 
 %%----------------------------------------------------------------------------
 
@@ -255,12 +255,13 @@ validate_key(map_node_id, Orddict, _Config) ->
      rabbit_misc:format("Requires map_node_id to be an orddict: ~p", [Orddict])}.
 
 normalise_nodes(Nodes) when is_list(Nodes) ->
-    lists:usort(
-      lists:map(fun ({Node, disc} = E) when is_atom(Node) -> E;
-                    ({Node, disk})     when is_atom(Node) -> {Node, disc};
-                    (Node)             when is_atom(Node) -> {Node, disc};
-                    ({Node, ram} = E)  when is_atom(Node) -> E
-                end, Nodes)).
+    orddict:from_list(
+      lists:usort(
+        lists:map(fun ({Node, disc} = E) when is_atom(Node) -> E;
+                      ({Node, disk})     when is_atom(Node) -> {Node, disc};
+                      (Node)             when is_atom(Node) -> {Node, disc};
+                      ({Node, ram} = E)  when is_atom(Node) -> E
+                  end, Nodes))).
 
 %%----------------------------------------------------------------------------
 
@@ -280,13 +281,13 @@ tidy_node_id_maps(NodeID, Config = #config { nodes = Nodes,
     %% We always remove ourself from the maps to take into account our
     %% own node_id may have changed (and then add ourself back in).
     MyNode = node(),
-    NodeNames = [N || {N, _} <- Nodes, N =/= MyNode],
+    NodeNames = orddict:fetch_keys(Nodes) -- [MyNode],
     NodesToRemove = orddict:fetch_keys(NodeToID) -- NodeNames,
     NodeToID1 = lists:foldr(fun orddict:erase/2, NodeToID, NodesToRemove),
     %% Add ourselves in. In addition to the above, consider that we
     %% could be new to the cluster and so there was never a mapping
     %% for us anyway.
-    NodeToID2 = case proplists:is_defined(MyNode, Nodes) of
+    NodeToID2 = case orddict:is_key(MyNode, Nodes) of
                     true  -> orddict:store(MyNode, NodeID, NodeToID1);
                     false -> NodeToID1
                 end,
@@ -360,10 +361,13 @@ detect_melisma(#config { gospel = {node, Node}, map_node_id = MapNodeIDNew },
     end.
 
 contains_node(Node, #config { nodes = Nodes }) ->
-    [] =/= [N || {N, _} <- Nodes, N =:= Node].
+    orddict:is_key(Node, Nodes).
 
 nodenames(#config { nodes = Nodes }) ->
-    [N || {N, _} <- Nodes].
+    orddict:fetch_keys(Nodes).
+
+disc_nodenames(#config { nodes = Nodes }) ->
+    orddict:fetch_keys(orddict:filter(fun (_K, V) -> V =:= disc end, Nodes)).
 
 categorise(NodeConfigList, Config, NodeID) ->
     lists:foldr(

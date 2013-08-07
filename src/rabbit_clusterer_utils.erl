@@ -66,11 +66,11 @@ eliminate_mnesia_dependencies(NodesToDelete) ->
     ok = rabbit_node_monitor:reset_cluster_status(),
     ok.
 
-configure_cluster(Nodes = [_|_]) ->
+configure_cluster(NodeDict) ->
     case application:load(rabbit) of
         ok                                -> ok;
         {error, {already_loaded, rabbit}} -> ok
     end,
-    NodeNames = [N || {N, _} <- Nodes],
-    Mode = proplists:get_value(node(), Nodes),
+    NodeNames = orddict:fetch_keys(NodeDict),
+    Mode = orddict:fetch(node(), NodeDict),
     ok = application:set_env(rabbit, cluster_nodes, {NodeNames, Mode}).
