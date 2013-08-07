@@ -24,11 +24,14 @@ load(PathOrPropList) -> load_external(PathOrPropList).
 load(NodeID, Config) ->
     choose_external_or_internal(
       case load_external() of
-          {ok, ExternalConfig} -> ExternalConfig;
-          {error, Error}       -> error_logger:info_msg(
-                                    "Ignoring external configuration due to "
-                                    "error: ~p~n", [Error]),
-                                  undefined
+          {ok, ExternalConfig} ->
+              ExternalConfig;
+          {error, no_external_config_provided} ->
+              undefined;
+          {error, Error} ->
+              error_logger:info_msg(
+                "Ignoring external configuration due to error: ~p~n", [Error]),
+              undefined
       end,
       case Config of
           undefined -> load_internal();
@@ -38,7 +41,7 @@ load(NodeID, Config) ->
 load_external() ->
     case external_path() of
         {ok, PathOrProplist} -> load_external(PathOrProplist);
-        undefined            -> {error, no_external_config_path_provided}
+        undefined            -> {error, no_external_config_provided}
     end.
 
 load_external(PathOrProplist) when is_list(PathOrProplist) ->
