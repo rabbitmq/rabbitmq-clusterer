@@ -138,20 +138,25 @@ to_proplist(NodeID, Config = #config {}) ->
     [{node_id, NodeID} | Proplist].
 
 from_proplist(Proplist) when is_list(Proplist) ->
-    ok = check_required_keys(Proplist),
-    Proplist1 = add_optional_keys(Proplist),
-    Fields = record_info(fields, config),
-    {_Pos, Config = #config { nodes = Nodes }} =
-        lists:foldl(fun (FieldName, {Pos, ConfigN}) ->
-                            Value = proplists:get_value(FieldName, Proplist1),
-                            {Pos + 1, setelement(Pos, ConfigN, Value)}
-                    end, {2, #config {}}, Fields),
-    case validate(Config) of
+    case check_required_keys(Proplist) of
         ok ->
-            {ok, proplists:get_value(node_id, Proplist1),
-             Config #config { nodes = normalise_nodes(Nodes) }};
-        {error, _} = Err ->
-            Err
+            Proplist1 = add_optional_keys(Proplist),
+            Fields = record_info(fields, config),
+            {_Pos, Config = #config { nodes = Nodes }} =
+                lists:foldl(
+                  fun (FieldName, {Pos, ConfigN}) ->
+                          Value = proplists:get_value(FieldName, Proplist1),
+                          {Pos + 1, setelement(Pos, ConfigN, Value)}
+                  end, {2, #config {}}, Fields),
+            case validate(Config) of
+                ok ->
+                    {ok, proplists:get_value(node_id, Proplist1),
+                     Config #config { nodes = normalise_nodes(Nodes) }};
+                {error, _} = Err ->
+                    Err
+            end;
+        {error, _} = E ->
+            E
     end.
 
 check_required_keys(Proplist) ->
