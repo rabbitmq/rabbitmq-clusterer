@@ -2,9 +2,11 @@
 
 -behaviour(gen_server).
 
--export([stop/1, multi_call/3, multi_cast/3, unlock/2, lock/2, lock_nodes/2]).
+-export([start_link/0, stop/1,
+         multi_call/3, multi_cast/3,
+         lock_nodes/2, lock/2, unlock/2]).
 
--export([start_link/0, init/1, handle_call/3, handle_cast/2, handle_info/2,
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
 -record(state, { token, locked_by, locking }).
