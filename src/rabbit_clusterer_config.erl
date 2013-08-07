@@ -24,7 +24,7 @@ load(PathOrPropList) -> load_external(PathOrPropList).
 load(NodeID, Config) ->
     choose_external_or_internal(
       case load_external() of
-          {ok, ExternalConfig} ->
+          ExternalConfig = #config {} ->
               ExternalConfig;
           {error, no_external_config_provided} ->
               undefined;
@@ -51,13 +51,17 @@ load_external(PathOrProplist) when is_list(PathOrProplist) ->
                     end,
     case ProplistOrErr of
         {ok, [Proplist]}   -> case from_proplist(Proplist) of
-                                  {ok, _NodeID, Config} -> {ok, Config};
+                                  {ok, _NodeID, Config} -> Config;
                                   {error, _} = Error    -> Error
                               end;
+        {ok, Terms}        -> {error, rabbit_misc:format(
+                                        "Config is not a single term: ~p",
+                                        [Terms])};
         {error, _} = Error -> Error
     end;
-load_external(_) ->
-    {error, external_config_not_a_path_or_proplist}.
+load_external(Other) ->
+    {error, rabbit_misc:format("External config not a path or proplist: ~p",
+                               [Other])}.
 
 load_internal() ->
     Proplist = case rabbit_file:read_term_file(internal_path()) of
@@ -157,7 +161,9 @@ from_proplist(Proplist) when is_list(Proplist) ->
             end;
         {error, _} = Err ->
             Err
-    end.
+    end;
+from_proplist(Other) ->
+    {error, rabbit_misc:format("Config is not a proplist: ~p", [Other])}.
 
 check_required_keys(Proplist) ->
     case required_keys() -- proplists:get_keys(Proplist) of
