@@ -155,8 +155,8 @@ from_proplist(Proplist) when is_list(Proplist) ->
                 {error, _} = Err ->
                     Err
             end;
-        {error, _} = E ->
-            E
+        {error, _} = Err ->
+            Err
     end.
 
 check_required_keys(Proplist) ->
