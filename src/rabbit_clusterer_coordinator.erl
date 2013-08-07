@@ -89,6 +89,15 @@ handle_call({request_status, NewNode, NewNodeID}, From,
 handle_call({request_status, _NewNode, _NewNodeID}, _From,
             State = #state { config = Config, status = Status }) ->
     %% Status \in {pending_shutdown, booting, ready}
+    %%
+    %% Consider we're running and we're already clustered with
+    %% NewNode, though it's currently down and is just coming back up,
+    %% after being reset. At this point, we will learn of its new
+    %% NodeID, but we must ignore that: if we merged it into our
+    %% config here then should NewNode be starting up with a newer
+    %% config that eventually involves us, we would lose the ability
+    %% in is_compatible to detect the node has been reset. Hence
+    %% ignoring NewNodeID here.
     {reply, {Config, Status}, reschedule_shutdown(State)};
 
 %% This is where a call from TModule on one node to TModule on another
