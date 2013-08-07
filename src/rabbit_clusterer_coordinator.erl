@@ -109,7 +109,7 @@ handle_call({apply_config, NewConfig}, From,
             undefined ->
                 load_external_config();
             #config {} ->
-                case rabbit_clusterer_config:validate_config(NewConfig) of
+                case rabbit_clusterer_config:validate(NewConfig) of
                     ok  -> NewConfig;
                     Err -> Err
                 end;
@@ -126,7 +126,7 @@ handle_call({apply_config, NewConfig}, From,
             {noreply, transitioner_event(
                         {new_config, NewConfig1, undefined}, State)};
         {#config {}, _} ->
-            case rabbit_clusterer_config:compare_configs(NewConfig1, Config) of
+            case rabbit_clusterer_config:compare(NewConfig1, Config) of
                 lt -> {reply, {provided_config_is_older_than_current,
                                NewConfig1, Config}, State};
                 eq -> {reply, {provided_config_already_applied,
@@ -220,7 +220,7 @@ handle_cast({new_config, ConfigRemote, Node},
     %% Status is either running on pending_shutdown. In both cases, we
     %% a) know what our config really is; b) it's safe to begin
     %% transitions to other configurations.
-    case rabbit_clusterer_config:compare_configs(ConfigRemote, Config) of
+    case rabbit_clusterer_config:compare(ConfigRemote, Config) of
         lt -> ok = send_new_config(Config, Node),
               {noreply, State};
         gt -> %% Remote is younger. We should switch to it. We
@@ -360,7 +360,7 @@ set_status(booting, State = #state { status  = {transitioner, _},
                                      node_id = NodeID }) ->
     error_logger:info_msg(
       "Clusterer booting Rabbit into cluster configuration:~n~p~n",
-      [rabbit_clusterer_config:record_config_to_proplist(NodeID, Config)]),
+      [rabbit_clusterer_config:to_proplist(NodeID, Config)]),
     ok = rabbit_clusterer_utils:ensure_start_mnesia(),
     case Booted of
         true  -> ok = rabbit_clusterer_utils:start_rabbit_async();
@@ -403,7 +403,7 @@ load_external_config(PathOrProplist) when is_list(PathOrProplist) ->
         {error, _} = Error ->
             Error;
         {ok, [Proplist]} ->
-            case rabbit_clusterer_config:proplist_config_to_record(Proplist) of
+            case rabbit_clusterer_config:from_proplist(Proplist) of
                 {ok, _NodeID, Config} -> {ok, Config};
                 {error, _} = Error    -> Error
             end
@@ -419,14 +419,13 @@ load_internal_config() ->
     case Proplist of
         undefined -> undefined;
         _         -> {ok, NodeID, Config} =
-                         rabbit_clusterer_config:proplist_config_to_record(
-                           Proplist),
+                         rabbit_clusterer_config:from_proplist(Proplist),
                      true = is_binary(NodeID), %% ASSERTION
                      {NodeID, Config}
     end.
 
 write_internal_config(NodeID, Config) ->
-    Proplist = rabbit_clusterer_config:record_config_to_proplist(NodeID, Config),
+    Proplist = rabbit_clusterer_config:to_proplist(NodeID, Config),
     ok = rabbit_file:write_term_file(internal_config_path(), [Proplist]).
 
 
@@ -439,7 +438,7 @@ begin_transition(NewConfig, State = #state { node_id = NodeID,
                                              nodes   = Nodes,
                                              status  = Status }) ->
     true = Status =/= booting, %% ASSERTION
-    case rabbit_clusterer_config:node_in_config(node(), NewConfig) of
+    case rabbit_clusterer_config:contains_node(node(), NewConfig) of
         false ->
             process_transitioner_response({shutdown, NewConfig}, State);
         true ->
@@ -451,7 +450,7 @@ begin_transition(NewConfig, State = #state { node_id = NodeID,
                          {_    , true } -> {transitioner, ?REJOIN};
                          {_    , false} -> {transitioner, ?JOIN}
                      end,
-            NewConfig1 = rabbit_clusterer_config:merge_configs(
+            NewConfig1 = rabbit_clusterer_config:merge(
                            NodeID, NewConfig, OldConfig),
             case Action of
                 noop ->
@@ -459,7 +458,7 @@ begin_transition(NewConfig, State = #state { node_id = NodeID,
                     error_logger:info_msg(
                       "Clusterer seemlessly transitioned to new "
                       "configuration:~n~p~n",
-                      [rabbit_clusterer_config:record_config_to_proplist(
+                      [rabbit_clusterer_config:to_proplist(
                          NodeID, NewConfig1)]),
                     update_monitoring(
                       State #state { config = NewConfig1 });
@@ -523,7 +522,7 @@ process_transitioner_response({invalid_config, Config},
     State1 = stop_comms(State #state { transitioner_state = undefined }),
     error_logger:info_msg("Multiple different configurations with equal "
                           "version numbers detected. Shutting down.~n~p~n",
-                          [rabbit_clusterer_config:record_config_to_proplist(
+                          [rabbit_clusterer_config:to_proplist(
                              NodeID, Config)]),
     set_status(shutdown, set_status(pending_shutdown, State1)).
 

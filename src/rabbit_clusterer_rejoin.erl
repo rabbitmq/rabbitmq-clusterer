@@ -103,12 +103,12 @@ event({comms, {Replies, BadNodes}}, State = #state { status  = awaiting_status,
                                                      config  = Config,
                                                      node_id = NodeID }) ->
     {Youngest, OlderThanUs, StatusDict} =
-        rabbit_clusterer_config:categorise_configs(Replies, Config, NodeID),
+        rabbit_clusterer_config:categorise(Replies, Config, NodeID),
     case Youngest =:= invalid orelse OlderThanUs =:= invalid of
         true ->
             {invalid_config, Config};
         false ->
-            case rabbit_clusterer_config:compare_configs(Youngest, Config) of
+            case rabbit_clusterer_config:compare(Youngest, Config) of
                 eq ->
                     case OlderThanUs of
                         [_|_] ->
@@ -196,7 +196,7 @@ event({request_awaiting, Fun}, State = #state { awaiting = Awaiting }) ->
     {continue, State};
 event({new_config, ConfigRemote, Node},
       State = #state { config = Config = #config { nodes = Nodes } }) ->
-    case rabbit_clusterer_config:compare_configs(ConfigRemote, Config) of
+    case rabbit_clusterer_config:compare(ConfigRemote, Config) of
         lt -> ok = rabbit_clusterer_coordinator:send_new_config(Config, Node),
               {continue, State};
         gt -> ok = rabbit_clusterer_coordinator:send_new_config(

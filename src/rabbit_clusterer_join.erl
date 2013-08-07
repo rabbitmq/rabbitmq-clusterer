@@ -16,8 +16,8 @@ init(Config = #config { nodes = Nodes,
                     reset ->
                         rabbit_clusterer_utils:wipe_mnesia();
                     {node, _Node} ->
-                        %% _utils:proplist_config_to_record ensures if
-                        %% we're here, _Node must be =:= node().
+                        %% _utils:from_proplist ensures if we're here,
+                        %% _Node must be =:= node().
                         rabbit_clusterer_utils:eliminate_mnesia_dependencies([])
                  end,
             {success, Config};
@@ -33,13 +33,13 @@ event({comms, {Replies, BadNodes}}, State = #state { status  = awaiting_status,
                                                      config  = Config,
                                                      node_id = NodeID }) ->
     {Youngest, OlderThanUs, StatusDict} =
-        rabbit_clusterer_config:categorise_configs(Replies, Config, NodeID),
+        rabbit_clusterer_config:categorise(Replies, Config, NodeID),
     Statuses = dict:fetch_keys(StatusDict),
     case Youngest =:= invalid orelse OlderThanUs =:= invalid of
         true ->
             {invalid_config, Config};
         false ->
-            case rabbit_clusterer_config:compare_configs(Youngest, Config) of
+            case rabbit_clusterer_config:compare(Youngest, Config) of
                 eq ->
                     %% We have the most up to date config. But we must
                     %% use Youngest from here on as it has the updated
@@ -77,7 +77,7 @@ event({request_config, NewNode, NewNodeID, Fun},
     end;
 event({new_config, ConfigRemote, Node},
       State = #state { config = Config = #config { nodes = Nodes } }) ->
-    case rabbit_clusterer_config:compare_configs(ConfigRemote, Config) of
+    case rabbit_clusterer_config:compare(ConfigRemote, Config) of
         lt -> ok = rabbit_clusterer_coordinator:send_new_config(Config, Node),
               {continue, State};
         gt -> %% Here we also need to make sure we forward this to

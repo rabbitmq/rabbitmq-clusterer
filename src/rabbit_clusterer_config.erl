@@ -2,18 +2,9 @@
 
 -include("rabbit_clusterer.hrl").
 
--export([choose_external_or_internal/2,
-         record_config_to_proplist/2,
-         proplist_config_to_record/1,
-         validate_config/1,
-         merge_configs/3,
-         add_node_id/4,
-         compare_configs/2,
-         detect_melisma/2,
-         node_in_config/2,
-         nodenames/1,
-         categorise_configs/3
-        ]).
+-export([choose_external_or_internal/2, to_proplist/2, from_proplist/1,
+         validate/1, merge/3, add_node_id/4, compare/2, detect_melisma/2,
+         contains_node/2, nodenames/1, categorise/3]).
 
 %%----------------------------------------------------------------------------
 
@@ -24,12 +15,12 @@ choose_external_or_internal(NewConfig, undefined) ->
     %% We only have an external config and no internal config, so we
     %% have no NodeID, so we must generate one.
     NodeID = create_node_id(),
-    NewConfig1 = merge_configs(NodeID, NewConfig, undefined),
+    NewConfig1 = merge(NodeID, NewConfig, undefined),
     {NodeID, NewConfig1, undefined};
 choose_external_or_internal(undefined, {NodeID, OldConfig}) ->
     {NodeID, OldConfig, OldConfig};
 choose_external_or_internal(NewConfig, {NodeID, OldConfig}) ->
-    case compare_configs(NewConfig, OldConfig) of
+    case compare(NewConfig, OldConfig) of
         gt      -> %% New cluster config has been applied
                    {NodeID, NewConfig, OldConfig};
         invalid -> error_logger:info_msg(
@@ -44,7 +35,7 @@ choose_external_or_internal(NewConfig, {NodeID, OldConfig}) ->
 default_config() ->
     NodeID = create_node_id(),
     MyNode = node(),
-    proplist_config_to_record(
+    from_proplist(
       [{nodes,            [{MyNode, disc}]},
        {version,          0},
        {gospel,           {node, MyNode}},
@@ -66,7 +57,7 @@ required_keys() -> [nodes, version, gospel, shutdown_timeout].
 
 optional_keys() -> [{map_node_id, orddict:new()}].
 
-record_config_to_proplist(NodeID, Config = #config {}) ->
+to_proplist(NodeID, Config = #config {}) ->
     Fields = record_info(fields, config),
     {_Pos, Proplist} =
         lists:foldl(
@@ -75,7 +66,7 @@ record_config_to_proplist(NodeID, Config = #config {}) ->
           end, {2, []}, Fields),
     [{node_id, NodeID} | Proplist].
 
-proplist_config_to_record(Proplist) when is_list(Proplist) ->
+from_proplist(Proplist) when is_list(Proplist) ->
     ok = check_required_keys(Proplist),
     Proplist1 = add_optional_keys(Proplist),
     Fields = record_info(fields, config),
@@ -84,7 +75,7 @@ proplist_config_to_record(Proplist) when is_list(Proplist) ->
                             Value = proplists:get_value(FieldName, Proplist1),
                             {Pos + 1, setelement(Pos, ConfigN, Value)}
                     end, {2, #config {}}, Fields),
-    case validate_config(Config) of
+    case validate(Config) of
         ok ->
             {ok, proplists:get_value(node_id, Proplist1),
              Config #config { nodes = normalise_nodes(Nodes) }};
@@ -108,26 +99,26 @@ add_optional_keys(Proplist) ->
                         end
                 end, Proplist, optional_keys()).
 
-validate_config(Config) ->
+validate(Config) ->
     {Result, _Pos} =
-        lists:foldl(fun (FieldName, {ok, Pos}) ->
-                            {validate_config_key(
-                               FieldName, element(Pos, Config), Config),
-                             Pos+1};
-                        (_FieldName, {{error, _E}, _Pos} = Err) ->
-                            Err
-                    end, {ok, 2}, record_info(fields, config)),
+        lists:foldl(
+          fun (FieldName, {ok, Pos}) ->
+                  {validate_key(FieldName, element(Pos, Config), Config),
+                   Pos+1};
+              (_FieldName, {{error, _E}, _Pos} = Err) ->
+                  Err
+          end, {ok, 2}, record_info(fields, config)),
     Result.
 
-validate_config_key(version, Version, _Config)
+validate_key(version, Version, _Config)
   when is_integer(Version) andalso Version >= 0 ->
     ok;
-validate_config_key(version, Version, _Config) ->
+validate_key(version, Version, _Config) ->
     {error, rabbit_misc:format("Require version to be non-negative integer: ~p",
                                [Version])};
-validate_config_key(gospel, reset, _Config) ->
+validate_key(gospel, reset, _Config) ->
     ok;
-validate_config_key(gospel, {node, Node}, Config = #config { nodes = Nodes }) ->
+validate_key(gospel, {node, Node}, Config = #config { nodes = Nodes }) ->
     case [true || N <- Nodes,
                   Node =:= N orelse
                   {Node, disc} =:= N orelse
@@ -137,19 +128,19 @@ validate_config_key(gospel, {node, Node}, Config = #config { nodes = Nodes }) ->
                            [Node, Config #config.nodes])};
         [_|_] -> ok
     end;
-validate_config_key(gospel, Gospel, _Config) ->
+validate_key(gospel, Gospel, _Config) ->
     {error, rabbit_misc:format("Invalid gospel setting: ~p", [Gospel])};
-validate_config_key(shutdown_timeout, infinity, _Config) ->
+validate_key(shutdown_timeout, infinity, _Config) ->
     ok;
-validate_config_key(shutdown_timeout, Timeout, _Config)
+validate_key(shutdown_timeout, Timeout, _Config)
   when is_integer(Timeout) andalso Timeout >= 0 ->
     ok;
-validate_config_key(shutdown_timeout, Timeout, _Config) ->
+validate_key(shutdown_timeout, Timeout, _Config) ->
     {error,
      rabbit_misc:format(
        "Require shutdown_timeout to be 'infinity' or non-negative integer: ~p",
        [Timeout])};
-validate_config_key(nodes, Nodes, _Config) when is_list(Nodes) ->
+validate_key(nodes, Nodes, _Config) when is_list(Nodes) ->
     {Result, Disc, NodeNames} =
         lists:foldr(
           fun ({Node, disc}, {ok, _, NN}) when is_atom(Node) ->
@@ -178,12 +169,12 @@ validate_config_key(nodes, Nodes, _Config) when is_list(Nodes) ->
         {error, Err, _} ->
             {error, Err}
     end;
-validate_config_key(nodes, Nodes, _Config) ->
+validate_key(nodes, Nodes, _Config) ->
     {error,
      rabbit_misc:format("Require nodes to be a list of nodes: ~p", [Nodes])};
-validate_config_key(map_node_id, Orddict, _Config) when is_list(Orddict) ->
+validate_key(map_node_id, Orddict, _Config) when is_list(Orddict) ->
     ok;
-validate_config_key(map_node_id, Orddict, _Config) ->
+validate_key(map_node_id, Orddict, _Config) ->
     {error,
      rabbit_misc:format("Requires map_node_id to be an orddict: ~p", [Orddict])}.
 
@@ -221,9 +212,9 @@ merge_node_id_maps(NodeID,
     tidy_node_id_maps(NodeID,
                       ConfigDest #config { map_node_id = NodeToIDDest1 }).
 
-merge_configs(NodeID, ConfigDest, ConfigSrc = #config {}) ->
+merge(NodeID, ConfigDest, ConfigSrc = #config {}) ->
     merge_node_id_maps(NodeID, ConfigDest, ConfigSrc);
-merge_configs(NodeID, Config, undefined) ->
+merge(NodeID, Config, undefined) ->
     tidy_node_id_maps(NodeID, Config).
 %% We deliberately don't have either of the other cases.
 
@@ -245,16 +236,16 @@ add_node_id(NewNode, NewNodeID, NodeID,
 
 %% We very deliberately completely ignore the map_* fields here. They
 %% are not semantically important from the POV of config equivalence.
-compare_configs(#config { version = V, gospel = GA, nodes = NA,
-                          shutdown_timeout = STA },
-                #config { version = V, gospel = GB, nodes = NB,
-                          shutdown_timeout = STB }) ->
+compare(#config { version = V, gospel = GA, nodes = NA,
+                  shutdown_timeout = STA },
+        #config { version = V, gospel = GB, nodes = NB,
+                  shutdown_timeout = STB }) ->
     case {[GA, STA, lists:usort(NA)], [GB, STB, lists:usort(NB)]} of
         {EQ, EQ} -> eq;
         _        -> invalid
     end;
-compare_configs(#config { version = VA },
-                #config { version = VB }) ->
+compare(#config { version = VA },
+        #config { version = VB }) ->
     case VA > VB of
         true  -> gt;
         false -> lt
@@ -278,9 +269,9 @@ detect_melisma(#config {}, undefined) ->
     false;
 detect_melisma(#config { gospel = {node, Node}, map_node_id = MapNodeIDNew },
                ConfigOld = #config { map_node_id = MapNodeIDOld }) ->
-    case node_in_config(node(), ConfigOld) of
+    case contains_node(node(), ConfigOld) of
         true ->
-            case node_in_config(Node, ConfigOld) of
+            case contains_node(Node, ConfigOld) of
                 true  -> case {orddict:find(Node, MapNodeIDNew),
                                orddict:find(Node, MapNodeIDOld)} of
                              {{ok, IdA}, {ok, IdB}} when IdA =/= IdB -> false;
@@ -292,13 +283,13 @@ detect_melisma(#config { gospel = {node, Node}, map_node_id = MapNodeIDNew },
             false
     end.
 
-node_in_config(Node, #config { nodes = Nodes }) ->
+contains_node(Node, #config { nodes = Nodes }) ->
     [] =/= [N || {N, _} <- Nodes, N =:= Node].
 
 nodenames(#config { nodes = Nodes }) ->
     [N || {N, _} <- Nodes].
 
-categorise_configs(NodeConfigList, Config, NodeID) ->
+categorise(NodeConfigList, Config, NodeID) ->
     lists:foldr(
       fun (_Relpy, {YoungestN, OlderThanUsN, _StatusDictN} = Acc)
             when YoungestN =:= invalid orelse OlderThanUsN =:= invalid ->
@@ -306,13 +297,13 @@ categorise_configs(NodeConfigList, Config, NodeID) ->
           ({N, preboot}, {YoungestN, OlderThanUsN, StatusDictN}) ->
               {YoungestN, OlderThanUsN, dict:append(preboot, N, StatusDictN)};
           ({N, {ConfigN, StatusN}}, {YoungestN, OlderThanUsN, StatusDictN}) ->
-              {case compare_configs(ConfigN, YoungestN) of
+              {case compare(ConfigN, YoungestN) of
                    invalid -> invalid;
                    lt      -> YoungestN;
                    _       -> %% i.e. gt *or* eq - must merge if eq too!
-                              merge_configs(NodeID, ConfigN, YoungestN)
+                              merge(NodeID, ConfigN, YoungestN)
                end,
-               case compare_configs(ConfigN, Config) of
+               case compare(ConfigN, Config) of
                    invalid -> invalid;
                    lt      -> [N | OlderThanUsN];
                    _       -> OlderThanUsN
