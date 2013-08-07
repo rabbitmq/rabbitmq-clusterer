@@ -16,7 +16,7 @@ init(Config = #config { nodes = Nodes,
                     reset ->
                         rabbit_clusterer_utils:wipe_mnesia();
                     {node, _Node} ->
-                        %% _utils:from_proplist ensures if we're here,
+                        %% _config:from_proplist ensures if we're here,
                         %% _Node must be =:= node().
                         rabbit_clusterer_utils:eliminate_mnesia_dependencies([])
                  end,
