@@ -132,26 +132,28 @@ required_keys() -> [nodes, version, gospel, shutdown_timeout].
 
 optional_keys() -> [{map_node_id, orddict:new()}].
 
+field_fold(Fun, Acc0) ->
+    {_Pos, Res} = lists:foldl(fun (FieldName, {Pos, Acc}) ->
+                                      {Pos + 1, Fun(FieldName, Pos, Acc)}
+                              end, {2, Acc0}, record_info(fields, config)),
+    Res.
+
 to_proplist(NodeID, Config = #config {}) ->
-    Fields = record_info(fields, config),
-    {_Pos, Proplist} =
-        lists:foldl(
-          fun (FieldName, {Pos, ProplistN}) ->
-                  {Pos + 1, [{FieldName, element(Pos, Config)} | ProplistN]}
-          end, {2, []}, Fields),
-    [{node_id, NodeID} | Proplist].
+    [{node_id, NodeID} |
+     field_fold(fun (FieldName, Pos, ProplistN) ->
+                        [{FieldName, element(Pos, Config)} | ProplistN]
+                end, [])].
 
 from_proplist(Proplist) when is_list(Proplist) ->
     case check_required_keys(Proplist) of
         ok ->
             Proplist1 = add_optional_keys(Proplist),
-            Fields = record_info(fields, config),
-            {_Pos, Config = #config { nodes = Nodes }} =
-                lists:foldl(
-                  fun (FieldName, {Pos, ConfigN}) ->
-                          Value = proplists:get_value(FieldName, Proplist1),
-                          {Pos + 1, setelement(Pos, ConfigN, Value)}
-                  end, {2, #config {}}, Fields),
+            Config = #config { nodes = Nodes } =
+                field_fold(
+                  fun (FieldName, Pos, ConfigN) ->
+                          setelement(Pos, ConfigN,
+                                     proplists:get_value(FieldName, Proplist1))
+                  end, #config {}),
             case validate(Config) of
                 ok ->
                     {ok, proplists:get_value(node_id, Proplist1),
@@ -182,15 +184,11 @@ add_optional_keys(Proplist) ->
                 end, Proplist, optional_keys()).
 
 validate(Config) ->
-    {Result, _Pos} =
-        lists:foldl(
-          fun (FieldName, {ok, Pos}) ->
-                  {validate_key(FieldName, element(Pos, Config), Config),
-                   Pos+1};
-              (_FieldName, {{error, _E}, _Pos} = Err) ->
-                  Err
-          end, {ok, 2}, record_info(fields, config)),
-    Result.
+    field_fold(fun (FieldName, Pos, ok) ->
+                       validate_key(FieldName, element(Pos, Config), Config);
+                   (_FieldName, _Pos, {error, _E} = Err) ->
+                       Err
+               end, ok).
 
 validate_key(version, Version, _Config)
   when is_integer(Version) andalso Version >= 0 ->
