@@ -3,7 +3,7 @@
 -include("rabbit_clusterer.hrl").
 
 -export([load/2, load/1, store_internal/2, to_proplist/2,
-         add_node_id/4, compare/2, detect_melisma/2,
+         merge/3, add_node_id/4, compare/2, detect_melisma/2,
          contains_node/2, nodenames/1, categorise/3]).
 
 %%----------------------------------------------------------------------------
