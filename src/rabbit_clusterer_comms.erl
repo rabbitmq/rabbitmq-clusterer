@@ -36,31 +36,31 @@ start_link() ->
     {ok, Pid, {Pid, Ref}}.
 
 stop({Pid, _Ref}) ->
-    gen_server:cast(Pid, stop).
+    ok = gen_server:cast(Pid, stop).
 
 multi_call(Nodes, Msg, {Pid, _Ref}) ->
     %% We do a cast, not a call, so that the caller doesn't block -
     %% the result gets sent back async. This is essential to avoid a
     %% potential deadlock.
-    gen_server:cast(Pid, {multi_call, self(), Nodes, Msg}).
+    ok = gen_server:cast(Pid, {multi_call, self(), Nodes, Msg}).
 
 multi_cast(Nodes, Msg, {Pid, _Ref}) ->
     %% Reason for doing this is to ensure that both abcasts and
     %% multi_calls originate from the same process and so will be
     %% received in the same order as they're sent.
-    gen_server:cast(Pid, {multi_cast, Nodes, Msg}).
+    ok = gen_server:cast(Pid, {multi_cast, Nodes, Msg}).
 
 %% public api
 lock_nodes(Nodes = [_|_], {Pid, _Ref}) ->
-    gen_server:cast(Pid, {lock_nodes, self(), Nodes}).
+    ok = gen_server:cast(Pid, {lock_nodes, self(), Nodes}).
 
 %% passed through from coordinator
 lock(Locker, {Pid, _Ref}) ->
-    gen_server:cast(Pid, {lock, Locker}).
+    ok = gen_server:cast(Pid, {lock, Locker}).
 
 %% passed through from coordinator
 unlock(Locker, {Pid, _Ref}) ->
-    gen_server:cast(Pid, {unlock, Locker}).
+    ok = gen_server:cast(Pid, {unlock, Locker}).
 
 %%----------------------------------------------------------------------------
 
