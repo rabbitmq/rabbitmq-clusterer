@@ -82,7 +82,7 @@ configure_cluster(NodeDict) ->
 %%
 %% Returns a tuple containing
 %% 1) the youngest config of all,
-%% 2) a list of nodes operating with configs older than the youngest config,
+%% 2) a list of nodes operating with configs older than the local node's
 %% 3) a dict mapping status to lists of nodes
 analyse_node_statuses(NodeConfigStatusList, Config, NodeID) ->
     lists:foldr(
