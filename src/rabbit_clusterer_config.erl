@@ -355,6 +355,10 @@ nodenames(#config { nodes = Nodes }) -> orddict:fetch_keys(Nodes).
 disc_nodenames(#config { nodes = Nodes }) ->
     orddict:fetch_keys(orddict:filter(fun (_K, V) -> V =:= disc end, Nodes)).
 
+%% This function categorises configs and statuses per node. It
+%% identifies the youngest config of all, the nodes that carry configs
+%% older than the youngest config, and a mapping from status to a list
+%% of nodes.
 categorise(NodeConfigList, Config, NodeID) ->
     lists:foldr(
       fun (_Relpy, {YoungestN, OlderThanUsN, _StatusDictN} = Acc)
