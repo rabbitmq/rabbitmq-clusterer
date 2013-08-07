@@ -282,15 +282,10 @@ merge(NodeID, Config, undefined) ->
 
 tidy_node_id_maps(NodeID, Config = #config { nodes = Nodes,
                                              map_node_id = NodeToID }) ->
-    %% We always remove ourself from the maps to take into account our
-    %% own node_id may have changed (and then add ourself back in).
     MyNode = node(),
-    NodeNames = orddict:fetch_keys(Nodes) -- [MyNode],
-    NodesToRemove = orddict:fetch_keys(NodeToID) -- NodeNames,
-    NodeToID1 = lists:foldr(fun orddict:erase/2, NodeToID, NodesToRemove),
-    %% Add ourselves in. In addition to the above, consider that we
-    %% could be new to the cluster and so there was never a mapping
-    %% for us anyway.
+    NodeToID1 = orddict:filter(fun (N, _ID) -> orddict:is_key(N, Nodes) end,
+                               NodeToID),
+    %% our own node_id may have changed
     NodeToID2 = case orddict:is_key(MyNode, Nodes) of
                     true  -> orddict:store(MyNode, NodeID, NodeToID1);
                     false -> NodeToID1
