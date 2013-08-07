@@ -9,7 +9,8 @@
          boot_rabbit_async/0,
          wipe_mnesia/0,
          eliminate_mnesia_dependencies/1,
-         configure_cluster/1
+         configure_cluster/1,
+         analyse_node_statuses/3
         ]).
 
 %%----------------------------------------------------------------------------
@@ -74,3 +75,34 @@ configure_cluster(NodeDict) ->
     NodeNames = orddict:fetch_keys(NodeDict),
     Mode = orddict:fetch(node(), NodeDict),
     ok = application:set_env(rabbit, cluster_nodes, {NodeNames, Mode}).
+
+%% The input is a k/v list of nodes and their config+status tuples (or
+%% the atom 'preboot' if the node is in the process of starting up),
+%% plus the local node's config and id.
+%%
+%% Returns a tuple containing
+%% 1) the youngest config of all,
+%% 2) a list of nodes operating with configs older than the youngest config,
+%% 3) a dict mapping status to lists of nodes
+analyse_node_statuses(NodeConfigStatusList, Config, NodeID) ->
+    lists:foldr(
+      fun (_Relpy, {YoungestN, OlderThanUsN, _StatusDictN} = Acc)
+            when YoungestN =:= invalid orelse OlderThanUsN =:= invalid ->
+              Acc;
+          ({N, preboot}, {YoungestN, OlderThanUsN, StatusDictN}) ->
+              {YoungestN, OlderThanUsN, dict:append(preboot, N, StatusDictN)};
+          ({N, {ConfigN, StatusN}}, {YoungestN, OlderThanUsN, StatusDictN}) ->
+              {case rabbit_clusterer_config:compare(ConfigN, YoungestN) of
+                   invalid -> invalid;
+                   lt      -> YoungestN;
+                   _       -> %% i.e. gt *or* eq - must merge if eq too!
+                              rabbit_clusterer_config:merge(
+                                NodeID, ConfigN, YoungestN)
+               end,
+               case rabbit_clusterer_config:compare(ConfigN, Config) of
+                   invalid -> invalid;
+                   lt      -> [N | OlderThanUsN];
+                   _       -> OlderThanUsN
+               end,
+               dict:append(StatusN, N, StatusDictN)}
+      end, {Config, [], dict:new()}, NodeConfigStatusList).

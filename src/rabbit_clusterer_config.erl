@@ -4,7 +4,7 @@
 
 -export([load/2, load/1, store_internal/2, to_proplist/2, merge/3,
          add_node_id/4, compare/2, is_compatible/2,
-         contains_node/2, nodenames/1, disc_nodenames/1, categorise/3]).
+         contains_node/2, nodenames/1, disc_nodenames/1]).
 
 %%----------------------------------------------------------------------------
 
@@ -354,29 +354,3 @@ nodenames(#config { nodes = Nodes }) -> orddict:fetch_keys(Nodes).
 
 disc_nodenames(#config { nodes = Nodes }) ->
     orddict:fetch_keys(orddict:filter(fun (_K, V) -> V =:= disc end, Nodes)).
-
-%% This function categorises configs and statuses per node. It
-%% identifies the youngest config of all, the nodes that carry configs
-%% older than the youngest config, and a mapping from status to a list
-%% of nodes.
-categorise(NodeConfigList, Config, NodeID) ->
-    lists:foldr(
-      fun (_Relpy, {YoungestN, OlderThanUsN, _StatusDictN} = Acc)
-            when YoungestN =:= invalid orelse OlderThanUsN =:= invalid ->
-              Acc;
-          ({N, preboot}, {YoungestN, OlderThanUsN, StatusDictN}) ->
-              {YoungestN, OlderThanUsN, dict:append(preboot, N, StatusDictN)};
-          ({N, {ConfigN, StatusN}}, {YoungestN, OlderThanUsN, StatusDictN}) ->
-              {case compare(ConfigN, YoungestN) of
-                   invalid -> invalid;
-                   lt      -> YoungestN;
-                   _       -> %% i.e. gt *or* eq - must merge if eq too!
-                              merge(NodeID, ConfigN, YoungestN)
-               end,
-               case compare(ConfigN, Config) of
-                   invalid -> invalid;
-                   lt      -> [N | OlderThanUsN];
-                   _       -> OlderThanUsN
-               end,
-               dict:append(StatusN, N, StatusDictN)}
-      end, {Config, [], dict:new()}, NodeConfigList).

@@ -33,7 +33,7 @@ event({comms, {Replies, BadNodes}}, State = #state { status  = awaiting_status,
                                                      config  = Config,
                                                      node_id = NodeID }) ->
     {Youngest, OlderThanUs, StatusDict} =
-        rabbit_clusterer_config:categorise(Replies, Config, NodeID),
+        rabbit_clusterer_utils:analyse_node_statuses(Replies, Config, NodeID),
     Statuses = dict:fetch_keys(StatusDict),
     case Youngest =:= invalid orelse OlderThanUs =:= invalid of
         true ->
