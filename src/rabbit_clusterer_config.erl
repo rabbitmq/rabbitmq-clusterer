@@ -2,9 +2,60 @@
 
 -include("rabbit_clusterer.hrl").
 
--export([choose_external_or_internal/2, to_proplist/2, from_proplist/1,
+-export([load_external/0, load_external/1, load_internal/0, write_internal/2,
+         choose_external_or_internal/2, to_proplist/2, from_proplist/1,
          validate/1, merge/3, add_node_id/4, compare/2, detect_melisma/2,
          contains_node/2, nodenames/1, categorise/3]).
+
+%%----------------------------------------------------------------------------
+
+%% We can't put the file within mnesia dir because that upsets the
+%% virgin detection in rabbit_mnesia!
+internal_path() -> rabbit_mnesia:dir() ++ "-cluster.config".
+
+external_path() -> application:get_env(rabbitmq_clusterer, config).
+
+load_external() ->
+    case external_path() of
+        {ok, PathOrProplist} ->
+            load_external(PathOrProplist);
+        undefined ->
+            {error, no_external_config_path_provided}
+    end.
+
+load_external(PathOrProplist) when is_list(PathOrProplist) ->
+    ProplistOrErr = case PathOrProplist of
+                        [{_,_}|_] -> {ok, [PathOrProplist]};
+                        [_|_]     -> rabbit_file:read_term_file(PathOrProplist)
+                    end,
+    case ProplistOrErr of
+        {error, _} = Error ->
+            Error;
+        {ok, [Proplist]} ->
+            case rabbit_clusterer_config:from_proplist(Proplist) of
+                {ok, _NodeID, Config} -> {ok, Config};
+                {error, _} = Error    -> Error
+            end
+    end;
+load_external(_) ->
+    {error, external_config_not_a_path_or_proplist}.
+
+load_internal() ->
+    Proplist = case rabbit_file:read_term_file(internal_path()) of
+                   {error, enoent}               -> undefined;
+                   {ok, [Proplist1 = [{_,_}|_]]} -> Proplist1
+               end,
+    case Proplist of
+        undefined -> undefined;
+        _         -> {ok, NodeID, Config} =
+                         rabbit_clusterer_config:from_proplist(Proplist),
+                     true = is_binary(NodeID), %% ASSERTION
+                     {NodeID, Config}
+    end.
+
+write_internal(NodeID, Config) ->
+    Proplist = rabbit_clusterer_config:to_proplist(NodeID, Config),
+    ok = rabbit_file:write_term_file(internal_path(), [Proplist]).
 
 %%----------------------------------------------------------------------------
 

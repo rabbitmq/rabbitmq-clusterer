@@ -107,14 +107,14 @@ handle_call({apply_config, NewConfig}, From,
     NewConfigOrErr =
         case NewConfig of
             undefined ->
-                load_external_config();
+                rabbit_clusterer_config:load_external();
             #config {} ->
                 case rabbit_clusterer_config:validate(NewConfig) of
                     ok  -> NewConfig;
                     Err -> Err
                 end;
             _ ->
-                load_external_config(NewConfig)
+                rabbit_clusterer_config:load_external(NewConfig)
         end,
     case {NewConfigOrErr, Status} of
         {#config {} = NewConfig1, {transitioner, _}} ->
@@ -159,7 +159,7 @@ handle_cast(begin_coordination, State = #state { node_id = NodeID,
                                                  status  = preboot,
                                                  config  = Config }) ->
     ExternalConfig =
-        case load_external_config() of
+        case rabbit_clusterer_config:load_external() of
             {ok, ExternalConfig1} ->
                 ExternalConfig1;
             {error, Error} ->
@@ -169,7 +169,7 @@ handle_cast(begin_coordination, State = #state { node_id = NodeID,
                 undefined
         end,
     InternalConfig = case Config of
-                         undefined -> load_internal_config();
+                         undefined -> rabbit_clusterer_config:load_internal();
                          _         -> {NodeID, Config}
                      end,
     {NewNodeID, NewConfig, OldConfig} =
@@ -374,60 +374,6 @@ set_status(shutdown, State = #state { status = pending_shutdown }) ->
     init:stop(),
     State #state { status = shutdown }.
 
-
-%%----------------------------------------------------------------------------
-%% Cluster config loading and selection
-%%----------------------------------------------------------------------------
-
-%% We can't put the file within mnesia dir because that upsets the
-%% virgin detection in rabbit_mnesia!
-internal_config_path() -> rabbit_mnesia:dir() ++ "-cluster.config".
-
-external_config_path() -> application:get_env(rabbitmq_clusterer, config).
-
-load_external_config() ->
-    case external_config_path() of
-        {ok, PathOrProplist} ->
-            load_external_config(PathOrProplist);
-        undefined ->
-            {error, no_external_config_path_provided}
-    end.
-
-load_external_config(PathOrProplist) when is_list(PathOrProplist) ->
-    ProplistOrErr = case PathOrProplist of
-                        [{_,_}|_] -> {ok, [PathOrProplist]};
-                        [_|_]     -> rabbit_file:read_term_file(PathOrProplist)
-                    end,
-    case ProplistOrErr of
-        {error, _} = Error ->
-            Error;
-        {ok, [Proplist]} ->
-            case rabbit_clusterer_config:from_proplist(Proplist) of
-                {ok, _NodeID, Config} -> {ok, Config};
-                {error, _} = Error    -> Error
-            end
-    end;
-load_external_config(_) ->
-    {error, external_config_not_a_path_or_proplist}.
-
-load_internal_config() ->
-    Proplist = case rabbit_file:read_term_file(internal_config_path()) of
-                   {error, enoent}               -> undefined;
-                   {ok, [Proplist1 = [{_,_}|_]]} -> Proplist1
-               end,
-    case Proplist of
-        undefined -> undefined;
-        _         -> {ok, NodeID, Config} =
-                         rabbit_clusterer_config:from_proplist(Proplist),
-                     true = is_binary(NodeID), %% ASSERTION
-                     {NodeID, Config}
-    end.
-
-write_internal_config(NodeID, Config) ->
-    Proplist = rabbit_clusterer_config:to_proplist(NodeID, Config),
-    ok = rabbit_file:write_term_file(internal_config_path(), [Proplist]).
-
-
 %%----------------------------------------------------------------------------
 %% Changing cluster config
 %%----------------------------------------------------------------------------
@@ -453,7 +399,8 @@ begin_transition(NewConfig, State = #state { node_id = NodeID,
                            NodeID, NewConfig, OldConfig),
             case Action of
                 noop ->
-                    ok = write_internal_config(NodeID, NewConfig1),
+                    ok = rabbit_clusterer_config:write_internal(
+                           NodeID, NewConfig1),
                     error_logger:info_msg(
                       "Clusterer seemlessly transitioned to new "
                       "configuration:~n~p~n",
@@ -497,7 +444,7 @@ process_transitioner_response({SuccessOrShutdown, ConfigNew},
     %% config applied to us that tells us to shutdown, we must record
     %% that config, otherwise we can later be restarted and try to
     %% start up with an outdated config.
-    ok = write_internal_config(NodeID, ConfigNew),
+    ok = rabbit_clusterer_config:write_internal(NodeID, ConfigNew),
     State1 = stop_comms(State #state { transitioner_state = undefined,
                                        config             = ConfigNew }),
     case SuccessOrShutdown of
