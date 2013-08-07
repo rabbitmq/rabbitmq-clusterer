@@ -104,19 +104,7 @@ handle_call({apply_config, NewConfig}, From,
             State = #state { status = Status, config = Config })
   when Status =:= ready orelse Status =:= pending_shutdown
        orelse ?IS_TRANSITIONER(Status) ->
-    NewConfigOrErr =
-        case NewConfig of
-            undefined ->
-                rabbit_clusterer_config:load_external();
-            #config {} ->
-                case rabbit_clusterer_config:validate(NewConfig) of
-                    ok  -> NewConfig;
-                    Err -> Err
-                end;
-            _ ->
-                rabbit_clusterer_config:load_external(NewConfig)
-        end,
-    case {NewConfigOrErr, Status} of
+    case {rabbit_clusterer_config:load(NewConfig), Status} of
         {#config {} = NewConfig1, {transitioner, _}} ->
             %% We have to defer to the transitioner here which means
             %% we can't give back as good feedback, but never
@@ -158,23 +146,8 @@ handle_call(Msg, From, State) ->
 handle_cast(begin_coordination, State = #state { node_id = NodeID,
                                                  status  = preboot,
                                                  config  = Config }) ->
-    ExternalConfig =
-        case rabbit_clusterer_config:load_external() of
-            {ok, ExternalConfig1} ->
-                ExternalConfig1;
-            {error, Error} ->
-                error_logger:info_msg(
-                  "Ignoring external configuration due to error: "
-                  "~p~n", [Error]),
-                undefined
-        end,
-    InternalConfig = case Config of
-                         undefined -> rabbit_clusterer_config:load_internal();
-                         _         -> {NodeID, Config}
-                     end,
-    {NewNodeID, NewConfig, OldConfig} =
-        rabbit_clusterer_config:choose_external_or_internal(
-          ExternalConfig, InternalConfig),
+    {NewNodeID, NewConfig, OldConfig} = rabbit_clusterer_config:load(
+                                          NodeID, Config),
     {noreply,
      begin_transition(NewConfig, State #state { node_id = NewNodeID,
                                                 config  = OldConfig })};

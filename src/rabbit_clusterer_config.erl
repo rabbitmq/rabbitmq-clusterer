@@ -2,9 +2,8 @@
 
 -include("rabbit_clusterer.hrl").
 
--export([load_external/0, load_external/1, load_internal/0, store_internal/2,
-         choose_external_or_internal/2, to_proplist/2, from_proplist/1,
-         validate/1, merge/3, add_node_id/4, compare/2, detect_melisma/2,
+-export([load/2, load/1, store_internal/2, to_proplist/2, from_proplist/1,
+         merge/3, add_node_id/4, compare/2, detect_melisma/2,
          contains_node/2, nodenames/1, categorise/3]).
 
 %%----------------------------------------------------------------------------
@@ -14,6 +13,29 @@
 internal_path() -> rabbit_mnesia:dir() ++ "-cluster.config".
 
 external_path() -> application:get_env(rabbitmq_clusterer, config).
+
+load(undefined)      -> load_external();
+load(#config {} = C) -> case validate(C) of
+                            ok  -> C;
+                            Err -> Err
+                        end;
+load(PathOrPropList) -> load_external(PathOrPropList).
+
+load(NodeID, Config) ->
+    ExternalConfig = case load_external() of
+                         {ok, ExternalConfig1} ->
+                             ExternalConfig1;
+                         {error, Error} ->
+                             error_logger:info_msg(
+                               "Ignoring external configuration due to error: "
+                               "~p~n", [Error]),
+                             undefined
+                     end,
+    InternalConfig = case Config of
+                         undefined -> load_internal();
+                         _         -> {NodeID, Config}
+                     end,
+    choose_external_or_internal(ExternalConfig, InternalConfig).
 
 load_external() ->
     case external_path() of
