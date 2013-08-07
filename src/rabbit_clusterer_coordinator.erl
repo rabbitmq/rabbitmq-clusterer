@@ -104,7 +104,7 @@ handle_call({apply_config, NewConfig}, From,
             State = #state { status = Status, config = Config })
   when Status =:= ready orelse Status =:= pending_shutdown
        orelse ?IS_TRANSITIONER(Status) ->
-    NewConfig1 =
+    NewConfigOrErr =
         case NewConfig of
             undefined ->
                 load_external_config();
@@ -116,8 +116,8 @@ handle_call({apply_config, NewConfig}, From,
             _ ->
                 load_external_config(NewConfig)
         end,
-    case {NewConfig1, Status} of
-        {#config {}, {transitioner, _}} ->
+    case {NewConfigOrErr, Status} of
+        {#config {} = NewConfig1, {transitioner, _}} ->
             %% We have to defer to the transitioner here which means
             %% we can't give back as good feedback, but never
             %% mind. The transitioner will do the comparison for us
@@ -125,7 +125,7 @@ handle_call({apply_config, NewConfig}, From,
             gen_server:reply(From, transition_in_progress_ok),
             {noreply, transitioner_event(
                         {new_config, NewConfig1, undefined}, State)};
-        {#config {}, _} ->
+        {#config {} = NewConfig1, _} ->
             case rabbit_clusterer_config:compare(NewConfig1, Config) of
                 lt -> {reply, {provided_config_is_older_than_current,
                                NewConfig1, Config}, State};
@@ -140,9 +140,8 @@ handle_call({apply_config, NewConfig}, From,
                      {provided_config_has_same_version_but_differs_from_current,
                       NewConfig1, Config}, State}
             end;
-        _ ->
-            {reply, {invalid_config_specification,
-                     NewConfig, NewConfig1}, State}
+        {{error, Reason}, _} ->
+            {reply, {invalid_config_specification, NewConfig, Reason}, State}
     end;
 handle_call({apply_config, _Config}, _From,
             State = #state { status = Status }) ->
