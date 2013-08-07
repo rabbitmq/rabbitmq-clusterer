@@ -53,6 +53,8 @@ create_node_id() ->
     %% is set backwards, but we hope that won't happen.
     erlang:md5(term_to_binary({node(), now()})).
 
+%%----------------------------------------------------------------------------
+
 required_keys() -> [nodes, version, gospel, shutdown_timeout].
 
 optional_keys() -> [{map_node_id, orddict:new()}].
@@ -178,7 +180,6 @@ validate_key(map_node_id, Orddict, _Config) ->
     {error,
      rabbit_misc:format("Requires map_node_id to be an orddict: ~p", [Orddict])}.
 
-
 normalise_nodes(Nodes) when is_list(Nodes) ->
     lists:usort(
       lists:map(fun ({Node, disc} = E) when is_atom(Node) -> E;
@@ -186,6 +187,19 @@ normalise_nodes(Nodes) when is_list(Nodes) ->
                     (Node)             when is_atom(Node) -> {Node, disc};
                     ({Node, ram} = E)  when is_atom(Node) -> E
                 end, Nodes)).
+
+%%----------------------------------------------------------------------------
+
+merge(NodeID,
+      ConfigDest = #config { map_node_id = NodeToIDDest },
+      _ConfigSrc = #config { map_node_id = NodeToIDSrc }) ->
+    NodeToIDDest1 = orddict:merge(fun (_Node, IDDest, _IDSrc) -> IDDest end,
+                                  NodeToIDDest, NodeToIDSrc),
+    tidy_node_id_maps(NodeID,
+                      ConfigDest #config { map_node_id = NodeToIDDest1 });
+merge(NodeID, Config, undefined) ->
+    tidy_node_id_maps(NodeID, Config).
+%% We deliberately don't have either of the other cases.
 
 tidy_node_id_maps(NodeID, Config = #config { nodes = Nodes,
                                              map_node_id = NodeToID }) ->
@@ -204,19 +218,7 @@ tidy_node_id_maps(NodeID, Config = #config { nodes = Nodes,
                 end,
     Config #config { map_node_id = NodeToID2 }.
 
-merge_node_id_maps(NodeID,
-                   ConfigDest = #config { map_node_id = NodeToIDDest },
-                   _ConfigSrc = #config { map_node_id = NodeToIDSrc }) ->
-    NodeToIDDest1 = orddict:merge(fun (_Node, IDDest, _IDSrc) -> IDDest end,
-                                  NodeToIDDest, NodeToIDSrc),
-    tidy_node_id_maps(NodeID,
-                      ConfigDest #config { map_node_id = NodeToIDDest1 }).
-
-merge(NodeID, ConfigDest, ConfigSrc = #config {}) ->
-    merge_node_id_maps(NodeID, ConfigDest, ConfigSrc);
-merge(NodeID, Config, undefined) ->
-    tidy_node_id_maps(NodeID, Config).
-%% We deliberately don't have either of the other cases.
+%%----------------------------------------------------------------------------
 
 add_node_id(NewNode, NewNodeID, NodeID,
             Config = #config { map_node_id = NodeToID }) ->
