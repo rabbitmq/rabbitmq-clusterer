@@ -29,13 +29,11 @@ load_external(PathOrProplist) when is_list(PathOrProplist) ->
                         [_|_]     -> rabbit_file:read_term_file(PathOrProplist)
                     end,
     case ProplistOrErr of
-        {error, _} = Error ->
-            Error;
-        {ok, [Proplist]} ->
-            case rabbit_clusterer_config:from_proplist(Proplist) of
-                {ok, _NodeID, Config} -> {ok, Config};
-                {error, _} = Error    -> Error
-            end
+        {ok, [Proplist]}   -> case from_proplist(Proplist) of
+                                  {ok, _NodeID, Config} -> {ok, Config};
+                                  {error, _} = Error    -> Error
+                              end;
+        {error, _} = Error -> Error
     end;
 load_external(_) ->
     {error, external_config_not_a_path_or_proplist}.
@@ -47,15 +45,14 @@ load_internal() ->
                end,
     case Proplist of
         undefined -> undefined;
-        _         -> {ok, NodeID, Config} =
-                         rabbit_clusterer_config:from_proplist(Proplist),
+        _         -> {ok, NodeID, Config} = from_proplist(Proplist),
                      true = is_binary(NodeID), %% ASSERTION
                      {NodeID, Config}
     end.
 
 store_internal(NodeID, Config) ->
-    Proplist = rabbit_clusterer_config:to_proplist(NodeID, Config),
-    ok = rabbit_file:write_term_file(internal_path(), [Proplist]).
+    ok = rabbit_file:write_term_file(internal_path(),
+                                     [to_proplist(NodeID, Config)]).
 
 %%----------------------------------------------------------------------------
 
