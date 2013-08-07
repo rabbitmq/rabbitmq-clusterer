@@ -285,7 +285,7 @@ tidy_node_id_maps(NodeID, Config = #config { nodes = Nodes,
     MyNode = node(),
     NodeToID1 = orddict:filter(fun (N, _ID) -> orddict:is_key(N, Nodes) end,
                                NodeToID),
-    %% our own node_id may have changed
+    %% our own node_id may have changed or be missing.
     NodeToID2 = case orddict:is_key(MyNode, Nodes) of
                     true  -> orddict:store(MyNode, NodeID, NodeToID1);
                     false -> NodeToID1
