@@ -37,10 +37,8 @@ load(NodeID, Config) ->
 
 load_external() ->
     case external_path() of
-        {ok, PathOrProplist} ->
-            load_external(PathOrProplist);
-        undefined ->
-            {error, no_external_config_path_provided}
+        {ok, PathOrProplist} -> load_external(PathOrProplist);
+        undefined            -> {error, no_external_config_path_provided}
     end.
 
 load_external(PathOrProplist) when is_list(PathOrProplist) ->
