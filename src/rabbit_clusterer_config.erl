@@ -306,7 +306,7 @@ add_node_id(NewNode, NewNodeID, NodeID,
               end,
     NodeToID1 = orddict:store(NewNode, NewNodeID, NodeToID),
     {Changed, tidy_node_id_maps(NodeID,
-                                Config #config {map_node_id = NodeToID1 })}.
+                                Config #config { map_node_id = NodeToID1 })}.
 
 %% We very deliberately completely ignore the map_* fields here. They
 %% are not semantically important from the POV of config equivalence.
