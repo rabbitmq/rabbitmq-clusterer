@@ -3,7 +3,7 @@
 -include("rabbit_clusterer.hrl").
 
 -export([load/2, load/1, store_internal/2, to_proplist/2, merge/3,
-         add_node_id/4, compare/2, detect_melisma/2,
+         add_node_id/4, compare/2, is_compatible/2,
          contains_node/2, nodenames/1, disc_nodenames/1, categorise/3]).
 
 %%----------------------------------------------------------------------------
@@ -330,17 +330,14 @@ compare(#config { version = VA },
 %% the new config is someone we thought we knew but who's been reset
 %% (so their node_id has changed) then we'll need to do a fresh sync
 %% to them.
-%% Yes, melisma is a surprising choice. But 'compatible' or 'upgrade'
-%% isn't right either. I like the idea of a cluster continuing to
-%% slide from one config to another, hence melisma.
-detect_melisma(Config, Config) ->
+is_compatible(Config, Config) ->
     true;
-detect_melisma(#config { gospel = reset }, _OldConfig) ->
+is_compatible(#config { gospel = reset }, _OldConfig) ->
     false;
-detect_melisma(#config {}, undefined) ->
+is_compatible(#config {}, undefined) ->
     false;
-detect_melisma(#config { gospel = {node, Node}, map_node_id = MapNodeIDNew },
-               ConfigOld = #config { map_node_id = MapNodeIDOld }) ->
+is_compatible(#config { gospel = {node, Node}, map_node_id = MapNodeIDNew },
+              ConfigOld = #config { map_node_id = MapNodeIDOld }) ->
     case (contains_node(node(), ConfigOld) andalso
           contains_node(Node,   ConfigOld)) of
         true  -> case {orddict:find(Node, MapNodeIDNew),

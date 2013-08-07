@@ -197,7 +197,7 @@ handle_cast({new_config, ConfigRemote, Node},
               {noreply, State};
         gt -> %% Remote is younger. We should switch to it. We
               %% deliberately do not merge across the configs at this
-              %% stage as it would break melisma detection.
+              %% stage as it would break is_compatible.
               %% begin_transition will reboot if necessary.
               {noreply, begin_transition(ConfigRemote, State)};
         _  -> %% eq and invalid. In both cases we just ignore. If
@@ -360,9 +360,9 @@ begin_transition(NewConfig, State = #state { node_id = NodeID,
         false ->
             process_transitioner_response({shutdown, NewConfig}, State);
         true ->
-            Melisma = rabbit_clusterer_config:detect_melisma(NewConfig,
-                                                            OldConfig),
-            Action = case {Status, Melisma} of
+            Compatible = rabbit_clusterer_config:is_compatible(NewConfig,
+                                                               OldConfig),
+            Action = case {Status, Compatible} of
                          {ready, true } -> noop;
                          {ready, false} -> reboot;
                          {_    , true } -> {transitioner, ?REJOIN};
@@ -384,7 +384,7 @@ begin_transition(NewConfig, State = #state { node_id = NodeID,
                 reboot ->
                     %% Must use the un-merged config here otherwise we
                     %% risk getting a different answer from
-                    %% detect_melisma when we come back here after
+                    %% is_compatible when we come back here after
                     %% reboot.
                     begin_transition(
                       NewConfig, set_status(pending_shutdown, State));
