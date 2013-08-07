@@ -33,13 +33,13 @@ event({comms, {Replies, BadNodes}}, State = #state { status  = awaiting_status,
                                                      config  = Config,
                                                      node_id = NodeID }) ->
     {Youngest, OlderThanUs, StatusDict} =
-        rabbit_clusterer_utils:categorise_configs(Replies, Config, NodeID),
+        rabbit_clusterer_config:categorise_configs(Replies, Config, NodeID),
     Statuses = dict:fetch_keys(StatusDict),
     case Youngest =:= invalid orelse OlderThanUs =:= invalid of
         true ->
             {invalid_config, Config};
         false ->
-            case rabbit_clusterer_utils:compare_configs(Youngest, Config) of
+            case rabbit_clusterer_config:compare_configs(Youngest, Config) of
                 eq ->
                     %% We have the most up to date config. But we must
                     %% use Youngest from here on as it has the updated
@@ -69,7 +69,7 @@ event({delayed_request_status, _Ref}, State) ->
 event({request_config, NewNode, NewNodeID, Fun},
       State = #state { config = Config, node_id = NodeID }) ->
     {NodeIDChanged, Config1} =
-        rabbit_clusterer_utils:add_node_id(NewNode, NewNodeID, NodeID, Config),
+        rabbit_clusterer_config:add_node_id(NewNode, NewNodeID, NodeID, Config),
     ok = Fun(Config1),
     case NodeIDChanged of
         true  -> {config_changed, Config1};
@@ -77,7 +77,7 @@ event({request_config, NewNode, NewNodeID, Fun},
     end;
 event({new_config, ConfigRemote, Node},
       State = #state { config = Config = #config { nodes = Nodes } }) ->
-    case rabbit_clusterer_utils:compare_configs(ConfigRemote, Config) of
+    case rabbit_clusterer_config:compare_configs(ConfigRemote, Config) of
         lt -> ok = rabbit_clusterer_coordinator:send_new_config(Config, Node),
               {continue, State};
         gt -> %% Here we also need to make sure we forward this to

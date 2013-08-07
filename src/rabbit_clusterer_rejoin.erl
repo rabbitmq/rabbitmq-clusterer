@@ -103,12 +103,12 @@ event({comms, {Replies, BadNodes}}, State = #state { status  = awaiting_status,
                                                      config  = Config,
                                                      node_id = NodeID }) ->
     {Youngest, OlderThanUs, StatusDict} =
-        rabbit_clusterer_utils:categorise_configs(Replies, Config, NodeID),
+        rabbit_clusterer_config:categorise_configs(Replies, Config, NodeID),
     case Youngest =:= invalid orelse OlderThanUs =:= invalid of
         true ->
             {invalid_config, Config};
         false ->
-            case rabbit_clusterer_utils:compare_configs(Youngest, Config) of
+            case rabbit_clusterer_config:compare_configs(Youngest, Config) of
                 eq ->
                     case OlderThanUs of
                         [_|_] ->
@@ -185,7 +185,7 @@ event({request_config, NewNode, NewNodeID, Fun},
     %% Right here we could have a node that we're dependent on being
     %% reset.
     {NodeIDChanged, Config1} =
-        rabbit_clusterer_utils:add_node_id(NewNode, NewNodeID, NodeID, Config),
+        rabbit_clusterer_config:add_node_id(NewNode, NewNodeID, NodeID, Config),
     ok = Fun(Config1),
     case NodeIDChanged of
         true  -> {config_changed, Config1};
@@ -196,7 +196,7 @@ event({request_awaiting, Fun}, State = #state { awaiting = Awaiting }) ->
     {continue, State};
 event({new_config, ConfigRemote, Node},
       State = #state { config = Config = #config { nodes = Nodes } }) ->
-    case rabbit_clusterer_utils:compare_configs(ConfigRemote, Config) of
+    case rabbit_clusterer_config:compare_configs(ConfigRemote, Config) of
         lt -> ok = rabbit_clusterer_coordinator:send_new_config(Config, Node),
               {continue, State};
         gt -> ok = rabbit_clusterer_coordinator:send_new_config(
@@ -294,5 +294,5 @@ update_remote_nodes(Nodes, Config, State = #state { comms = Comms }) ->
 
 lock_nodes(State = #state { comms = Comms, config = Config }) ->
     ok = rabbit_clusterer_comms:lock_nodes(
-           rabbit_clusterer_utils:nodenames(Config), Comms),
+           rabbit_clusterer_config:nodenames(Config), Comms),
     {continue, State #state { status = awaiting_lock }}.
