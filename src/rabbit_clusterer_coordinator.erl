@@ -191,19 +191,31 @@ handle_cast({comms, _Comms, _Result}, State) ->
     {noreply, State};
 
 handle_cast({new_config, _ConfigRemote, Node},
-            State = #state { status = Status, nodes  = Nodes })
-  when Status =:= preboot orelse Status =:= booting ->
+            State = #state { status = preboot, nodes = Nodes }) ->
     %% In preboot we don't know what our eventual config is going to
     %% be so as a result we just ignore the provided remote config but
     %% make a note to send over our eventual config to this node once
-    %% we've sorted ourselves out. In booting, it's not safe to
-    %% reconfigure our own rabbit, and given the transitioning state
-    %% of mnesia during rabbit boot we don't want anyone else to
-    %% interfere either, so again, we just wait.
+    %% we've sorted ourselves out.
     %%
     %% Don't worry about dupes, we'll filter them out when we come to
     %% deal with the list.
     {noreply, State #state { nodes = [Node | Nodes] }};
+handle_cast({new_config, ConfigRemote, Node},
+            State = #state { status = booting, nodes = Nodes,
+                             config = Config, node_id = NodeID }) ->
+    %% In booting, it's not safe to reconfigure our own rabbit, and
+    %% given the transitioning state of mnesia during rabbit boot we
+    %% don't want anyone else to interfere either, so again, we just
+    %% wait. But we do update our config node-id map if the
+    %% ConfigRemote is coeval with our own.
+    case rabbit_clusterer_config:compare(ConfigRemote, Config) of
+        coeval -> Config1 = rabbit_clusterer_config:update_node_id(
+                              Node, ConfigRemote, NodeID, Config),
+                  ok = rabbit_clusterer_config:store_internal(
+                         NodeID, Config1),
+                  {noreply, State #state { config = Config1 }};
+        _      -> {noreply, State #state { nodes = [Node | Nodes] }}
+    end;
 handle_cast({new_config, ConfigRemote, Node},
             State = #state { status = {transitioner, _} }) ->
     %% We have to deal with this case because we could have the
@@ -226,10 +238,8 @@ handle_cast({new_config, ConfigRemote, Node},
                    %% this stage as it would break is_compatible.
                    %% begin_transition will reboot if necessary.
                    {noreply, begin_transition(ConfigRemote, State)};
-        coeval  -> NodeIDRemote = rabbit_clusterer_config:fetch_node_id(
-                                    Node, ConfigRemote),
-                   {_Changed, Config1} = rabbit_clusterer_config:add_node_id(
-                                           Node, NodeIDRemote, NodeID, Config),
+        coeval  -> Config1 = rabbit_clusterer_config:update_node_id(
+                               Node, ConfigRemote, NodeID, Config),
                    ok = rabbit_clusterer_config:store_internal(
                           NodeID, Config1),
                    {noreply, State #state { config = Config1 }};
@@ -400,8 +410,8 @@ begin_transition(NewConfig, State = #state { node_id = NodeID,
                          {_    , true } -> {transitioner, ?REJOIN};
                          {_    , false} -> {transitioner, ?JOIN}
                      end,
-            NewConfig1 = rabbit_clusterer_config:merge(
-                           NodeID, NewConfig, OldConfig),
+            NewConfig1 = rabbit_clusterer_config:transfer_map(NewConfig,
+                                                              OldConfig),
             case Action of
                 noop ->
                     ok = rabbit_clusterer_config:store_internal(
@@ -524,6 +534,7 @@ update_monitoring(
             ready ->
                 NodeNamesNew1 =
                     rabbit_clusterer_config:nodenames(ConfigNew) -- [node()],
+                ok = send_new_config(ConfigNew, NodeNamesNew1 -- NodesOld),
                 {NodeNamesNew1,
                  [monitor(process, {?SERVER, N}) || N <- NodeNamesNew1]};
             pending_shutdown ->
