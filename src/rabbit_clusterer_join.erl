@@ -32,13 +32,11 @@ event({comms, {[], _BadNodes}}, State = #state { status = awaiting_status }) ->
 event({comms, {Replies, BadNodes}}, State = #state { status  = awaiting_status,
                                                      config  = Config,
                                                      node_id = NodeID }) ->
-    {Youngest, OlderThanUs, StatusDict} =
-        rabbit_clusterer_utils:analyse_node_statuses(Replies, Config, NodeID),
-    Statuses = dict:fetch_keys(StatusDict),
-    case Youngest =:= invalid orelse OlderThanUs =:= invalid of
-        true ->
+    case rabbit_clusterer_utils:analyse_node_statuses(Replies, Config, NodeID) of
+        invalid ->
             {invalid_config, Config};
-        false ->
+        {Youngest, OlderThanUs, StatusDict} ->
+            Statuses = dict:fetch_keys(StatusDict),
             case rabbit_clusterer_config:compare(Youngest, Config) of
                 eq ->
                     %% We have the most up to date config. But we must

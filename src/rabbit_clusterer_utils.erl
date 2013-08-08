@@ -85,24 +85,44 @@ configure_cluster(NodeDict) ->
 %% 2) a list of nodes operating with configs older than the local node's
 %% 3) a dict mapping status to lists of nodes
 analyse_node_statuses(NodeConfigStatusList, Config, NodeID) ->
-    lists:foldr(
-      fun (_Relpy, {YoungestN, OlderThanUsN, _StatusDictN} = Acc)
-            when YoungestN =:= invalid orelse OlderThanUsN =:= invalid ->
-              Acc;
-          ({N, preboot}, {YoungestN, OlderThanUsN, StatusDictN}) ->
-              {YoungestN, OlderThanUsN, dict:append(preboot, N, StatusDictN)};
-          ({N, {ConfigN, StatusN}}, {YoungestN, OlderThanUsN, StatusDictN}) ->
-              {case rabbit_clusterer_config:compare(ConfigN, YoungestN) of
-                   invalid -> invalid;
-                   lt      -> YoungestN;
-                   _       -> %% i.e. gt *or* eq - must merge if eq too!
-                              rabbit_clusterer_config:merge(
-                                NodeID, ConfigN, YoungestN)
-               end,
-               case rabbit_clusterer_config:compare(ConfigN, Config) of
-                   invalid -> invalid;
-                   lt      -> [N | OlderThanUsN];
-                   _       -> OlderThanUsN
-               end,
-               dict:append(StatusN, N, StatusDictN)}
-      end, {Config, [], dict:new()}, NodeConfigStatusList).
+    Analysis =
+        lists:foldr(
+          fun (_Reply, invalid) ->
+                  invalid;
+              ({N, preboot}, {YoungestN, OlderN, IDsN, StatusesN}) ->
+                  {YoungestN, OlderN, IDsN, dict:append(preboot, N, StatusesN)};
+              ({N, {ConfigN, StatusN}}, {YoungestN, OlderN, IDsN, StatusesN}) ->
+                  VsYoung = rabbit_clusterer_config:compare(ConfigN, YoungestN),
+                  VsConfig = rabbit_clusterer_config:compare(ConfigN, Config),
+                  case VsYoung =:= invalid orelse VsConfig =:= invalid of
+                      true ->
+                          invalid;
+                      false ->
+                          YoungestN1 = case VsYoung of
+                                           gt -> ConfigN;
+                                           _  -> YoungestN
+                                       end,
+                          OlderN1 = case VsConfig of
+                                        lt -> [N | OlderN];
+                                        _  -> OlderN
+                                    end,
+                          NodeIDN =
+                              orddict:fetch(N, ConfigN #config.map_node_id),
+                          IDsN1 = [{N, NodeIDN} | IDsN],
+                          StatusesN1 = dict:append(StatusN, N, StatusesN),
+                          {YoungestN1, OlderN1, IDsN1, StatusesN1}
+                  end
+          end, {Config, [], [], dict:new()}, NodeConfigStatusList),
+    case Analysis of
+        invalid ->
+            invalid;
+        {Youngest, Older, IDs, Status} ->
+            %% We want to make sure anything that we had in Config
+            %% that does not exist in IDs is still maintained.
+            Youngest1 =
+                rabbit_clusterer_config:merge(
+                  NodeID,
+                  Youngest #config { map_node_id = orddict:from_list(IDs) },
+                  Config),
+            {Youngest1, Older, Status}
+    end.

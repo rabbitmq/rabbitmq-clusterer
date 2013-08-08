@@ -102,12 +102,10 @@ init(Config = #config { nodes = Nodes }, NodeID, Comms) ->
 event({comms, {Replies, BadNodes}}, State = #state { status  = awaiting_status,
                                                      config  = Config,
                                                      node_id = NodeID }) ->
-    {Youngest, OlderThanUs, StatusDict} =
-        rabbit_clusterer_utils:analyse_node_statuses(Replies, Config, NodeID),
-    case Youngest =:= invalid orelse OlderThanUs =:= invalid of
-        true ->
+    case rabbit_clusterer_utils:analyse_node_statuses(Replies, Config, NodeID) of
+        invalid ->
             {invalid_config, Config};
-        false ->
+        {Youngest, OlderThanUs, StatusDict} ->
             case rabbit_clusterer_config:compare(Youngest, Config) of
                 eq ->
                     case OlderThanUs of

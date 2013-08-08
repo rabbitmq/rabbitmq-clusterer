@@ -32,4 +32,3 @@ apply_config(Config) -> rabbit_clusterer_coordinator:apply_config(Config).
 start(normal, []) -> rabbit_clusterer_sup:start_link().
 
 stop(_State) -> ok.
-
