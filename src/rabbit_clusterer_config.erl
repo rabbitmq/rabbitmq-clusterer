@@ -3,9 +3,8 @@
 -include("rabbit_clusterer.hrl").
 
 -export([load/2, load/1, store_internal/2, to_proplist/2, transfer_map/2,
-         update_node_id/4, add_node_ids/3, add_node_id/4, fetch_node_id/2,
-         compare/2, is_compatible/2, contains_node/2, nodenames/1,
-         disc_nodenames/1]).
+         update_node_id/4, add_node_ids/3, add_node_id/4, compare/2,
+         is_compatible/2, contains_node/2, nodenames/1, disc_nodenames/1]).
 
 %%----------------------------------------------------------------------------
 
@@ -274,20 +273,6 @@ transfer_map(Dest, undefined) ->
 transfer_map(Dest = #config { }, #config { map_node_id = Map }) ->
     Dest #config { map_node_id = Map }.
 
-tidy_node_id_maps(NodeID, Config = #config { nodes = Nodes,
-                                             map_node_id = NodeToID }) ->
-    MyNode = node(),
-    NodeToID1 = orddict:filter(fun (N, _ID) -> orddict:is_key(N, Nodes) end,
-                               NodeToID),
-    %% our own node_id may have changed or be missing.
-    NodeToID2 = case orddict:is_key(MyNode, Nodes) of
-                    true  -> orddict:store(MyNode, NodeID, NodeToID1);
-                    false -> NodeToID1
-                end,
-    Config #config { map_node_id = NodeToID2 }.
-
-%%----------------------------------------------------------------------------
-
 update_node_id(Node, #config { map_node_id = NodeToIDRemote },
                NodeID, Config = #config { map_node_id = NodeToIDLocal }) ->
     NodeToIDLocal1 = orddict:store(Node, orddict:fetch(Node, NodeToIDRemote),
@@ -314,8 +299,17 @@ add_node_id(NewNode, NewNodeID, NodeID,
     {Changed, tidy_node_id_maps(NodeID,
                                 Config #config { map_node_id = NodeToID1 })}.
 
-fetch_node_id(Node, #config { map_node_id = NodeToID }) ->
-    orddict:fetch(Node, NodeToID).
+tidy_node_id_maps(NodeID, Config = #config { nodes = Nodes,
+                                             map_node_id = NodeToID }) ->
+    MyNode = node(),
+    NodeToID1 = orddict:filter(fun (N, _ID) -> orddict:is_key(N, Nodes) end,
+                               NodeToID),
+    %% our own node_id may have changed or be missing.
+    NodeToID2 = case orddict:is_key(MyNode, Nodes) of
+                    true  -> orddict:store(MyNode, NodeID, NodeToID1);
+                    false -> NodeToID1
+                end,
+    Config #config { map_node_id = NodeToID2 }.
 
 %%----------------------------------------------------------------------------
 
