@@ -3,7 +3,7 @@
 -include("rabbit_clusterer.hrl").
 
 -export([load/2, load/1, store_internal/2, to_proplist/2, merge/3,
-         add_node_id/4, compare/2, is_compatible/2,
+         add_node_ids/3, add_node_id/4, compare/2, is_compatible/2,
          contains_node/2, nodenames/1, disc_nodenames/1]).
 
 %%----------------------------------------------------------------------------
@@ -88,8 +88,7 @@ choose_external_or_internal(NewConfig, undefined) ->
     %% We only have an external config and no internal config, so we
     %% have no NodeID, so we must generate one.
     NodeID = create_node_id(),
-    NewConfig1 = merge(NodeID, NewConfig, undefined),
-    {NodeID, NewConfig1, undefined};
+    {NodeID, tidy_node_id_maps(NodeID, NewConfig), undefined};
 choose_external_or_internal(undefined, {NodeID, OldConfig}) ->
     {NodeID, OldConfig, OldConfig};
 choose_external_or_internal(NewConfig, {NodeID, OldConfig}) ->
@@ -293,6 +292,12 @@ tidy_node_id_maps(NodeID, Config = #config { nodes = Nodes,
     Config #config { map_node_id = NodeToID2 }.
 
 %%----------------------------------------------------------------------------
+
+add_node_ids(NodeIDs, NodeID, Config = #config { map_node_id = NodeToID }) ->
+    NodeToID1 = lists:foldl(fun ({NodeN, NodeIDN}, NodeToIDN) ->
+                                    orddict:store(NodeN, NodeIDN, NodeToIDN)
+                            end, NodeToID, NodeIDs),
+    tidy_node_id_maps(NodeID, Config #config { map_node_id = NodeToID1 }).
 
 add_node_id(NewNode, NewNodeID, NodeID,
             Config = #config { map_node_id = NodeToID }) ->

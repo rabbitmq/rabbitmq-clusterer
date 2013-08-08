@@ -86,8 +86,10 @@ handle_call({request_status, NewNode, NewNodeID}, From,
     Fun = fun (Config) -> gen_server:reply(From, {Config, Status}), ok end,
     {noreply, transitioner_event(
                 {request_config, NewNode, NewNodeID, Fun}, State)};
-handle_call({request_status, _NewNode, _NewNodeID}, _From,
-            State = #state { config = Config, status = Status }) ->
+handle_call({request_status, NewNode, NewNodeID}, _From,
+            State = #state { config  = Config,
+                             status  = Status,
+                             node_id = NodeID }) ->
     %% Status \in {pending_shutdown, booting, ready}
     %%
     %% Consider we're running and we're already clustered with
@@ -98,7 +100,22 @@ handle_call({request_status, _NewNode, _NewNodeID}, _From,
     %% config that eventually involves us, we would lose the ability
     %% in is_compatible to detect the node has been reset. Hence
     %% ignoring NewNodeID here.
-    {reply, {Config, Status}, reschedule_shutdown(State)};
+    %%
+    %% Equally however, consider we're running in a cluster which has
+    %% some missing nodes. Those nodes then come online and request
+    %% our status. We should here record their ID. So we want to add
+    %% their ID in only if we don't have a record of it already.
+    %%
+    %% This is consistent with the behaviour of the transitioners
+    %% (above head) who will restart the transition if the NewNode has
+    %% changed its ID.
+    Config1 = case rabbit_clusterer_config:add_node_id(NewNode, NewNodeID,
+                                                       NodeID, Config) of
+                  {true,  _Config} -> Config;
+                  {false, Config2} -> Config2
+              end,
+    {reply, {Config1, Status},
+     reschedule_shutdown(State #state { config = Config1 })};
 
 %% This is where a call from TModule on one node to TModule on another
 %% node lands.

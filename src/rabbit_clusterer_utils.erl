@@ -93,10 +93,9 @@ analyse_node_statuses(NodeConfigStatusList, Config, NodeID) ->
         {Youngest, Older, IDs, Status} ->
             %% We want to make sure anything that we had in Config
             %% that does not exist in IDs is still maintained.
-            {rabbit_clusterer_config:merge(
-               NodeID,
-               Youngest #config { map_node_id = orddict:from_list(IDs) },
-               Config),
+            YoungestOrigMap =
+                Youngest #config { map_node_id = Config #config.map_node_id },
+            {rabbit_clusterer_config:add_node_ids(IDs, NodeID, YoungestOrigMap),
              Older, Status}
     end.
 
