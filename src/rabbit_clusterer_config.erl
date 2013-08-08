@@ -291,8 +291,6 @@ tidy_node_id_maps(NodeID, Config = #config { nodes = Nodes,
                 end,
     Config #config { map_node_id = NodeToID2 }.
 
-%%----------------------------------------------------------------------------
-
 add_node_ids(NodeIDs, NodeID, Config = #config { map_node_id = NodeToID }) ->
     NodeToID1 = orddict:merge(fun (_Node, _A, B) -> B end,
                               NodeToID, orddict:from_list(NodeIDs)),
@@ -314,6 +312,8 @@ add_node_id(NewNode, NewNodeID, NodeID,
 
 fetch_node_id(Node, #config { map_node_id = NodeToID }) ->
     orddict:fetch(Node, NodeToID).
+
+%%----------------------------------------------------------------------------
 
 %% We very deliberately completely ignore the map_* fields here. They
 %% are not semantically important from the POV of config equivalence.
@@ -354,6 +354,8 @@ is_compatible(#config { gospel = {node, Node}, map_node_id = MapNodeIDNew },
                  end;
         false -> false
     end.
+
+%%----------------------------------------------------------------------------
 
 contains_node(Node, #config { nodes = Nodes }) -> orddict:is_key(Node, Nodes).
 
