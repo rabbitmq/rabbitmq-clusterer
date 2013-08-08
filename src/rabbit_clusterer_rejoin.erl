@@ -192,7 +192,8 @@ event({request_config, NewNode, NewNodeID, Fun},
 event({request_awaiting, Fun}, State = #state { awaiting = Awaiting }) ->
     ok = Fun(Awaiting),
     {continue, State};
-event({new_config, ConfigRemote, Node}, State = #state { config = Config }) ->
+event({new_config, ConfigRemote, Node}, State = #state { config  = Config,
+                                                         node_id = NodeID }) ->
     case rabbit_clusterer_config:compare(ConfigRemote, Config) of
         older   -> ok = rabbit_clusterer_coordinator:send_new_config(Config, Node),
                    {continue, State};
@@ -201,7 +202,12 @@ event({new_config, ConfigRemote, Node}, State = #state { config = Config }) ->
                           rabbit_clusterer_config:nodenames(Config) --
                               [node(), Node]),
                    {config_changed, ConfigRemote};
-        _       -> %% ignore
+        coeval  -> NodeIDRemote = rabbit_clusterer_config:fetch_node_id(
+                                    Node, ConfigRemote),
+                   {_Changed, Config1} = rabbit_clusterer_config:add_node_id(
+                                           Node, NodeIDRemote, NodeID, Config),
+                   {continue, State #state { config = Config1 }};
+        invalid -> %% ignore
                    {continue, State}
     end.
 

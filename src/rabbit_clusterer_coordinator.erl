@@ -214,7 +214,7 @@ handle_cast({new_config, ConfigRemote, Node},
     %% deadlock.
     {noreply, transitioner_event({new_config, ConfigRemote, Node}, State)};
 handle_cast({new_config, ConfigRemote, Node},
-            State = #state { config = Config }) ->
+            State = #state { config = Config, node_id = NodeID }) ->
     %% Status is either running on pending_shutdown. In both cases, we
     %% a) know what our config really is; b) it's safe to begin
     %% transitions to other configurations.
@@ -226,10 +226,16 @@ handle_cast({new_config, ConfigRemote, Node},
                    %% this stage as it would break is_compatible.
                    %% begin_transition will reboot if necessary.
                    {noreply, begin_transition(ConfigRemote, State)};
-        _       -> %% coveal and invalid. In both cases we just ignore. If
-                   %% invalid, the fact is that we are stable - either
-                   %% running or pending_shutdown, so we don't want to
-                   %% disturb that.
+        coeval  -> NodeIDRemote = rabbit_clusterer_config:fetch_node_id(
+                                    Node, ConfigRemote),
+                   {_Changed, Config1} = rabbit_clusterer_config:add_node_id(
+                                           Node, NodeIDRemote, NodeID, Config),
+                   ok = rabbit_clusterer_config:store_internal(
+                          NodeID, Config1),
+                   {noreply, State #state { config = Config1 }};
+        invalid -> %% Whilst invalid, the fact is that we are stable -
+                   %% either running or pending_shutdown, so we don't
+                   %% want to disturb that.
                    {noreply, State}
     end;
 

@@ -3,8 +3,8 @@
 -include("rabbit_clusterer.hrl").
 
 -export([load/2, load/1, store_internal/2, to_proplist/2, merge/3,
-         add_node_ids/3, add_node_id/4, compare/2, is_compatible/2,
-         contains_node/2, nodenames/1, disc_nodenames/1]).
+         add_node_ids/3, add_node_id/4, fetch_node_id/2, compare/2,
+         is_compatible/2, contains_node/2, nodenames/1, disc_nodenames/1]).
 
 %%----------------------------------------------------------------------------
 
@@ -294,9 +294,8 @@ tidy_node_id_maps(NodeID, Config = #config { nodes = Nodes,
 %%----------------------------------------------------------------------------
 
 add_node_ids(NodeIDs, NodeID, Config = #config { map_node_id = NodeToID }) ->
-    NodeToID1 = lists:foldl(fun ({NodeN, NodeIDN}, NodeToIDN) ->
-                                    orddict:store(NodeN, NodeIDN, NodeToIDN)
-                            end, NodeToID, NodeIDs),
+    NodeToID1 = orddict:merge(fun (_Node, _A, B) -> B end,
+                              NodeToID, orddict:from_list(NodeIDs)),
     tidy_node_id_maps(NodeID, Config #config { map_node_id = NodeToID1 }).
 
 add_node_id(NewNode, NewNodeID, NodeID,
@@ -312,6 +311,9 @@ add_node_id(NewNode, NewNodeID, NodeID,
     NodeToID1 = orddict:store(NewNode, NewNodeID, NodeToID),
     {Changed, tidy_node_id_maps(NodeID,
                                 Config #config { map_node_id = NodeToID1 })}.
+
+fetch_node_id(Node, #config { map_node_id = NodeToID }) ->
+    orddict:fetch(Node, NodeToID).
 
 %% We very deliberately completely ignore the map_* fields here. They
 %% are not semantically important from the POV of config equivalence.
