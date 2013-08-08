@@ -72,7 +72,19 @@ init([]) -> {ok, #state { node_id            = undefined,
 %%----------------
 %% Call
 %%----------------
-%% request_status is only called by transitioners.
+
+%% What is the difference between request_status and new_config?
+%% request_status requires a response and is only used by the
+%% transitioners to perform coordination when joining or rejoining a
+%% cluster. new_config is perhaps misnamed, but is only sent when a
+%% config has been achieved (running). new_config symbolises that a
+%% config has been achieved but is also sent periodically to any
+%% missing nodes in the cluster to make sure that should they appear
+%% they will be informed of the cluster config we expect them to take
+%% part in.
+%%
+%% Could they both be combined? Probably, but it would likely make the
+%% attached logic much hairier.
 handle_call({request_status, _Node, _NodeID}, _From,
             State = #state { status = preboot }) ->
     %% If status = preboot then we have the situation that a remote
