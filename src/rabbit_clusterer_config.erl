@@ -2,9 +2,10 @@
 
 -include("rabbit_clusterer.hrl").
 
--export([load/2, load/1, store_internal/2, to_proplist/2, merge/3,
-         add_node_ids/3, add_node_id/4, fetch_node_id/2, compare/2,
-         is_compatible/2, contains_node/2, nodenames/1, disc_nodenames/1]).
+-export([load/2, load/1, store_internal/2, to_proplist/2, transfer_map/2,
+         update_node_id/4, add_node_ids/3, add_node_id/4, fetch_node_id/2,
+         compare/2, is_compatible/2, contains_node/2, nodenames/1,
+         disc_nodenames/1]).
 
 %%----------------------------------------------------------------------------
 
@@ -268,16 +269,10 @@ normalise_nodes(Nodes) when is_list(Nodes) ->
 
 %%----------------------------------------------------------------------------
 
-merge(NodeID,
-      ConfigDest = #config { map_node_id = NodeToIDDest },
-      _ConfigSrc = #config { map_node_id = NodeToIDSrc }) ->
-    NodeToIDDest1 = orddict:merge(fun (_Node, IDDest, _IDSrc) -> IDDest end,
-                                  NodeToIDDest, NodeToIDSrc),
-    tidy_node_id_maps(NodeID,
-                      ConfigDest #config { map_node_id = NodeToIDDest1 });
-merge(NodeID, Config, undefined) ->
-    tidy_node_id_maps(NodeID, Config).
-%% We deliberately don't have either of the other cases.
+transfer_map(Dest, undefined) ->
+    Dest;
+transfer_map(Dest = #config { }, #config { map_node_id = Map }) ->
+    Dest #config { map_node_id = Map }.
 
 tidy_node_id_maps(NodeID, Config = #config { nodes = Nodes,
                                              map_node_id = NodeToID }) ->
@@ -291,7 +286,12 @@ tidy_node_id_maps(NodeID, Config = #config { nodes = Nodes,
                 end,
     Config #config { map_node_id = NodeToID2 }.
 
-%%----------------------------------------------------------------------------
+update_node_id(Node, #config { map_node_id = NodeToIDRemote },
+               NodeID, Config = #config { map_node_id = NodeToIDLocal }) ->
+    NodeToIDLocal1 = orddict:store(Node, orddict:fetch(Node, NodeToIDRemote),
+                                   NodeToIDLocal),
+    tidy_node_id_maps(NodeID,
+                      Config #config { map_node_id = NodeToIDLocal1 }).
 
 add_node_ids(NodeIDs, NodeID, Config = #config { map_node_id = NodeToID }) ->
     NodeToID1 = orddict:merge(fun (_Node, _A, B) -> B end,

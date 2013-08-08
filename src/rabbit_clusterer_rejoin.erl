@@ -202,10 +202,8 @@ event({new_config, ConfigRemote, Node}, State = #state { config  = Config,
                           rabbit_clusterer_config:nodenames(Config) --
                               [node(), Node]),
                    {config_changed, ConfigRemote};
-        coeval  -> NodeIDRemote = rabbit_clusterer_config:fetch_node_id(
-                                    Node, ConfigRemote),
-                   {_Changed, Config1} = rabbit_clusterer_config:add_node_id(
-                                           Node, NodeIDRemote, NodeID, Config),
+        coeval  -> Config1 = rabbit_clusterer_config:update_node_id(
+                               Node, ConfigRemote, NodeID, Config),
                    {continue, State #state { config = Config1 }};
         invalid -> %% ignore
                    {continue, State}
