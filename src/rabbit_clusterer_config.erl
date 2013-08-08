@@ -94,7 +94,7 @@ choose_external_or_internal(undefined, {NodeID, OldConfig}) ->
     {NodeID, OldConfig, OldConfig};
 choose_external_or_internal(NewConfig, {NodeID, OldConfig}) ->
     case compare(NewConfig, OldConfig) of
-        gt      -> %% New cluster config has been applied
+        younger -> %% New cluster config has been applied
                    {NodeID, NewConfig, OldConfig};
         invalid -> error_logger:info_msg(
                      "Ignoring invalid user-provided configuration", []),
@@ -313,14 +313,14 @@ add_node_id(NewNode, NewNodeID, NodeID,
 compare(#config { version = V, gospel = GA, nodes = NA, shutdown_timeout = TA },
         #config { version = V, gospel = GB, nodes = NB, shutdown_timeout = TB }) ->
     case {{GA, lists:usort(NA), TA}, {GB, lists:usort(NB), TB}} of
-        {EQ, EQ} -> eq;
+        {EQ, EQ} -> coeval;
         _        -> invalid
     end;
 compare(#config { version = VA },
         #config { version = VB }) ->
     case VA > VB of
-        true  -> gt;
-        false -> lt
+        true  -> younger;
+        false -> older
     end.
 
 %% If the config has changed, we need to figure out whether we need to

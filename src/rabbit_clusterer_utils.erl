@@ -99,12 +99,12 @@ analyse_node_statuses(NodeConfigStatusList, Config, NodeID) ->
                           invalid;
                       false ->
                           YoungestN1 = case VsYoung of
-                                           gt -> ConfigN;
-                                           _  -> YoungestN
+                                           younger -> ConfigN;
+                                           _       -> YoungestN
                                        end,
                           OlderN1 = case VsConfig of
-                                        lt -> [N | OlderN];
-                                        _  -> OlderN
+                                        older -> [N | OlderN];
+                                        _     -> OlderN
                                     end,
                           NodeIDN =
                               orddict:fetch(N, ConfigN #config.map_node_id),

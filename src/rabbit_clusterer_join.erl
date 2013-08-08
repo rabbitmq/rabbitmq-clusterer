@@ -38,7 +38,7 @@ event({comms, {Replies, BadNodes}}, State = #state { status  = awaiting_status,
         {Youngest, OlderThanUs, StatusDict} ->
             Statuses = dict:fetch_keys(StatusDict),
             case rabbit_clusterer_config:compare(Youngest, Config) of
-                eq ->
+                coeval ->
                     %% We have the most up to date config. But we must
                     %% use Youngest from here on as it has the updated
                     %% node_id_maps.
@@ -54,7 +54,7 @@ event({comms, {Replies, BadNodes}}, State = #state { status  = awaiting_status,
                             maybe_join(BadNodes =:= [], Statuses,
                                        State #state { config = Youngest })
                     end;
-                _ ->
+                younger -> %% cannot be older or invalid
                     {config_changed, Youngest}
             end
     end;
@@ -75,22 +75,23 @@ event({request_config, NewNode, NewNodeID, Fun},
     end;
 event({new_config, ConfigRemote, Node}, State = #state { config = Config }) ->
     case rabbit_clusterer_config:compare(ConfigRemote, Config) of
-        lt -> ok = rabbit_clusterer_coordinator:send_new_config(Config, Node),
-              {continue, State};
-        gt -> %% Here we also need to make sure we forward this to
-              %% anyone we're currently trying to cluster with: the
-              %% fact that we're about to change which config we're
-              %% using clearly invalidates our current config and it's
-              %% not just us using this config. We send from here and
-              %% not comms as we're about to kill off comms anyway so
-              %% there's no ordering issues to consider.
-              ok = rabbit_clusterer_coordinator:send_new_config(
-                     ConfigRemote,
-                     rabbit_clusterer_config:nodenames(Config) --
-                         [node(), Node]),
-              {config_changed, ConfigRemote};
-        _  -> %% ignore
-              {continue, State}
+        older   -> ok = rabbit_clusterer_coordinator:send_new_config(Config, Node),
+                   {continue, State};
+        younger -> %% Here we also need to make sure we forward this to
+                   %% anyone we're currently trying to cluster with:
+                   %% the fact that we're about to change which config
+                   %% we're using clearly invalidates our current
+                   %% config and it's not just us using this
+                   %% config. We send from here and not comms as we're
+                   %% about to kill off comms anyway so there's no
+                   %% ordering issues to consider.
+                   ok = rabbit_clusterer_coordinator:send_new_config(
+                          ConfigRemote,
+                          rabbit_clusterer_config:nodenames(Config) --
+                              [node(), Node]),
+                   {config_changed, ConfigRemote};
+        _       -> %% ignore
+                   {continue, State}
     end.
 
 

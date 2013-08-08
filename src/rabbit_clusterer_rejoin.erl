@@ -107,7 +107,7 @@ event({comms, {Replies, BadNodes}}, State = #state { status  = awaiting_status,
             {invalid_config, Config};
         {Youngest, OlderThanUs, StatusDict} ->
             case rabbit_clusterer_config:compare(Youngest, Config) of
-                eq ->
+                coeval ->
                     case OlderThanUs of
                         [_|_] ->
                             update_remote_nodes(OlderThanUs, Youngest, State);
@@ -115,7 +115,7 @@ event({comms, {Replies, BadNodes}}, State = #state { status  = awaiting_status,
                             maybe_rejoin(BadNodes, StatusDict,
                                          State #state { config = Youngest })
                     end;
-                _ ->
+                younger -> %% cannot be invalid or older
                     {config_changed, Youngest}
             end
     end;
@@ -194,15 +194,15 @@ event({request_awaiting, Fun}, State = #state { awaiting = Awaiting }) ->
     {continue, State};
 event({new_config, ConfigRemote, Node}, State = #state { config = Config }) ->
     case rabbit_clusterer_config:compare(ConfigRemote, Config) of
-        lt -> ok = rabbit_clusterer_coordinator:send_new_config(Config, Node),
-              {continue, State};
-        gt -> ok = rabbit_clusterer_coordinator:send_new_config(
-                     ConfigRemote,
-                     rabbit_clusterer_config:nodenames(Config) --
-                         [node(), Node]),
-              {config_changed, ConfigRemote};
-        _  -> %% ignore
-              {continue, State}
+        older   -> ok = rabbit_clusterer_coordinator:send_new_config(Config, Node),
+                   {continue, State};
+        younger -> ok = rabbit_clusterer_coordinator:send_new_config(
+                          ConfigRemote,
+                          rabbit_clusterer_config:nodenames(Config) --
+                              [node(), Node]),
+                   {config_changed, ConfigRemote};
+        _       -> %% ignore
+                   {continue, State}
     end.
 
 collect_dependency_graph(RejoiningNodes, State = #state { comms = Comms }) ->
