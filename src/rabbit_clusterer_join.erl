@@ -32,24 +32,19 @@ event({comms, {Replies, BadNodes}}, State = #state { status  = awaiting_status,
         invalid ->
             {invalid_config, Config};
         {Youngest, OlderThanUs, StatusDict} ->
-            Statuses = dict:fetch_keys(StatusDict),
             case rabbit_clusterer_config:compare(Youngest, Config) of
-                coeval ->
+                coeval when OlderThanUs =:= [] ->
                     %% We have the most up to date config. But we must
                     %% use Youngest from here on as it has the updated
                     %% node_id_maps.
-                    case OlderThanUs of
-                        [_|_] ->
-                            %% Update nodes which are older than
-                            %% us. In reality they're likely to
-                            %% receive lots of the same update from
-                            %% everyone else, but meh, they'll just
-                            %% have to cope.
-                            update_remote_nodes(OlderThanUs, Youngest, State);
-                        [] ->
-                            maybe_join(BadNodes =:= [], Statuses,
-                                       State #state { config = Youngest })
-                    end;
+                    maybe_join(BadNodes =:= [], dict:fetch_keys(StatusDict),
+                               State #state { config = Youngest });
+                coeval ->
+                    %% Update nodes which are older than us. In
+                    %% reality they're likely to receive lots of the
+                    %% same update from everyone else, but meh,
+                    %% they'll just have to cope.
+                    update_remote_nodes(OlderThanUs, Youngest, State);
                 younger -> %% cannot be older or invalid
                     {config_changed, Youngest}
             end

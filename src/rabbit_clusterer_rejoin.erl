@@ -108,14 +108,11 @@ event({comms, {Replies, BadNodes}}, State = #state { status  = awaiting_status,
             {invalid_config, Config};
         {Youngest, OlderThanUs, StatusDict} ->
             case rabbit_clusterer_config:compare(Youngest, Config) of
-                coeval ->
-                    case OlderThanUs of
-                        [_|_] ->
-                            update_remote_nodes(OlderThanUs, Youngest, State);
-                        [] ->
-                            maybe_rejoin(BadNodes, StatusDict,
-                                         State #state { config = Youngest })
-                    end;
+                coeval when OlderThanUs =:= [] ->
+                    maybe_rejoin(BadNodes, StatusDict,
+                                 State #state { config = Youngest });
+                coveal ->
+                    update_remote_nodes(OlderThanUs, Youngest, State);
                 younger -> %% cannot be invalid or older
                     {config_changed, Youngest}
             end
