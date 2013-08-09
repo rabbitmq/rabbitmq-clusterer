@@ -18,8 +18,8 @@
 -define(IS_TRANSITIONER(X),
         (X =:= {transitioner, ?JOIN} orelse X =:= {transitioner, ?REJOIN})).
 
--record(state, { node_id,
-                 status,
+-record(state, { status,
+                 node_id,
                  config,
                  transitioner_state,
                  comms,
@@ -56,8 +56,8 @@ apply_config(Config) ->
 
 %%----------------------------------------------------------------------------
 
-init([]) -> {ok, #state { node_id            = undefined,
-                          status             = preboot,
+init([]) -> {ok, #state { status             = preboot,
+                          node_id            = undefined,
                           config             = undefined,
                           transitioner_state = undefined,
                           comms              = undefined,
@@ -100,9 +100,9 @@ handle_call({request_status, NewNode, NewNodeID}, From,
     {noreply, transitioner_event(
                 {request_config, NewNode, NewNodeID, Fun}, State)};
 handle_call({request_status, NewNode, NewNodeID}, _From,
-            State = #state { config  = Config,
-                             status  = Status,
-                             node_id = NodeID }) ->
+            State = #state { status  = Status,
+                             node_id = NodeID,
+                             config  = Config }) ->
     %% Status \in {pending_shutdown, booting, ready}
     %%
     %% Consider we're running and we're already clustered with
@@ -182,8 +182,8 @@ handle_call(Msg, From, State) ->
 %%----------------
 %% Cast
 %%----------------
-handle_cast(begin_coordination, State = #state { node_id = NodeID,
-                                                 status  = preboot,
+handle_cast(begin_coordination, State = #state { status  = preboot,
+                                                 node_id = NodeID,
                                                  config  = Config }) ->
     {NewNodeID, NewConfig, OldConfig} = rabbit_clusterer_config:load(
                                           NodeID, Config),
@@ -215,7 +215,7 @@ handle_cast({new_config, _ConfigRemote, Node},
     {noreply, State #state { nodes = [Node | Nodes] }};
 handle_cast({new_config, ConfigRemote, Node},
             State = #state { status = booting, nodes = Nodes,
-                             config = Config, node_id = NodeID }) ->
+                             node_id = NodeID, config = Config }) ->
     %% In booting, it's not safe to reconfigure our own rabbit, and
     %% given the transitioning state of mnesia during rabbit boot we
     %% don't want anyone else to interfere either, so again, we just
@@ -239,7 +239,7 @@ handle_cast({new_config, ConfigRemote, Node},
     %% deadlock.
     {noreply, transitioner_event({new_config, ConfigRemote, Node}, State)};
 handle_cast({new_config, ConfigRemote, Node},
-            State = #state { config = Config, node_id = NodeID }) ->
+            State = #state { node_id = NodeID, config = Config }) ->
     %% Status is either running on pending_shutdown. In both cases, we
     %% a) know what our config really is; b) it's safe to begin
     %% transitions to other configurations.
@@ -382,9 +382,9 @@ set_status(pending_shutdown, State = #state { status = Status }) ->
     true = Status =/= booting, %% ASSERTION
     State #state { status = pending_shutdown };
 set_status(booting, State = #state { status  = {transitioner, _},
-                                     config  = Config,
                                      booted  = Booted,
-                                     node_id = NodeID }) ->
+                                     node_id = NodeID,
+                                     config  = Config }) ->
     error_logger:info_msg(
       "Clusterer booting Rabbit into cluster configuration:~n~p~n",
       [rabbit_clusterer_config:to_proplist(NodeID, Config)]),
@@ -406,10 +406,10 @@ set_status(shutdown, State = #state { status = pending_shutdown }) ->
 %% Changing cluster config
 %%----------------------------------------------------------------------------
 
-begin_transition(NewConfig, State = #state { node_id = NodeID,
+begin_transition(NewConfig, State = #state { status  = Status,
+                                             node_id = NodeID,
                                              config  = OldConfig,
-                                             nodes   = Nodes,
-                                             status  = Status }) ->
+                                             nodes   = Nodes }) ->
     true = Status =/= booting, %% ASSERTION
     case rabbit_clusterer_config:contains_node(node(), NewConfig) of
         false ->
@@ -535,10 +535,10 @@ reschedule_shutdown(State) ->
     State.
 
 update_monitoring(
-  State = #state { config      = ConfigNew,
+  State = #state { status      = Status,
+                   config      = ConfigNew,
                    nodes       = NodesOld,
-                   alive_mrefs = AliveOld,
-                   status      = Status })
+                   alive_mrefs = AliveOld })
   when Status =:= ready orelse Status =:= pending_shutdown ->
     ok = send_new_config(ConfigNew, NodesOld),
     [demonitor(MRef) || MRef <- AliveOld],
