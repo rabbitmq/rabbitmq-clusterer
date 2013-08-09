@@ -2,7 +2,7 @@
 
 -export([init/3, event/2]).
 
--record(state, { node_id, config, comms, status, awaiting, joining }).
+-record(state, { status, node_id, config, comms, awaiting, joining }).
 
 -include("rabbit_clusterer.hrl").
 
@@ -92,16 +92,16 @@ init(NodeID, Config = #config { nodes = Nodes }, Comms) ->
             ok = rabbit_clusterer_utils:eliminate_mnesia_dependencies([]),
             {success, Config};
         [_|_] ->
-            request_status(#state { config   = Config,
+            request_status(#state { node_id  = NodeID,
+                                    config   = Config,
                                     comms    = Comms,
-                                    node_id  = NodeID,
                                     awaiting = undefined,
                                     joining  = [] })
     end.
 
 event({comms, {Replies, BadNodes}}, State = #state { status  = awaiting_status,
-                                                     config  = Config,
-                                                     node_id = NodeID }) ->
+                                                     node_id = NodeID,
+                                                     config  = Config }) ->
     case rabbit_clusterer_utils:analyse_node_statuses(Replies,
                                                       NodeID, Config) of
         invalid ->
@@ -180,7 +180,7 @@ event({delayed_request_status, _Ref}, State) ->
     %% ignore it
     {continue, State};
 event({request_config, NewNode, NewNodeID, Fun},
-      State = #state { node_id = NodeID, config  = Config }) ->
+      State = #state { node_id = NodeID, config = Config }) ->
     %% Right here we could have a node that we're dependent on being
     %% reset.
     {NodeIDChanged, Config1} =
@@ -193,8 +193,8 @@ event({request_config, NewNode, NewNodeID, Fun},
 event({request_awaiting, Fun}, State = #state { awaiting = Awaiting }) ->
     ok = Fun(Awaiting),
     {continue, State};
-event({new_config, ConfigRemote, Node}, State = #state { config  = Config,
-                                                         node_id = NodeID }) ->
+event({new_config, ConfigRemote, Node},
+      State = #state { node_id = NodeID, config = Config }) ->
     case rabbit_clusterer_config:compare(ConfigRemote, Config) of
         older   -> ok = rabbit_clusterer_coordinator:send_new_config(Config, Node),
                    {continue, State};
@@ -216,9 +216,9 @@ collect_dependency_graph(RejoiningNodes, State = #state { comms = Comms }) ->
     {continue, State #state { status = awaiting_awaiting }}.
 
 
-request_status(State = #state { comms   = Comms,
-                                node_id = NodeID,
-                                config  = Config }) ->
+request_status(State = #state { node_id = NodeID,
+                                config  = Config,
+                                comms   = Comms }) ->
     MyNode = node(),
     NodesNotUs = rabbit_clusterer_config:nodenames(Config) -- [MyNode],
     ok = rabbit_clusterer_comms:multi_call(

@@ -2,7 +2,7 @@
 
 -export([init/3, event/2]).
 
--record(state, { node_id, config, comms, status }).
+-record(state, { status, node_id, config, comms }).
 
 -include("rabbit_clusterer.hrl").
 
@@ -17,16 +17,16 @@ init(NodeID, Config = #config { nodes = Nodes, gospel = Gospel }, Comms) ->
             ok = rabbit_clusterer_utils:eliminate_mnesia_dependencies([]),
             {success, Config};
         [_|_] ->
-            request_status(#state { config  = Config,
-                                    comms   = Comms,
-                                    node_id = NodeID })
+            request_status(#state { node_id = NodeID,
+                                    config  = Config,
+                                    comms   = Comms })
     end.
 
 event({comms, {[], _BadNodes}}, State = #state { status = awaiting_status }) ->
     delayed_request_status(State);
 event({comms, {Replies, BadNodes}}, State = #state { status  = awaiting_status,
-                                                     config  = Config,
-                                                     node_id = NodeID }) ->
+                                                     node_id = NodeID,
+                                                     config  = Config }) ->
     case rabbit_clusterer_utils:analyse_node_statuses(Replies,
                                                       NodeID, Config) of
         invalid ->
@@ -69,8 +69,8 @@ event({request_config, NewNode, NewNodeID, Fun},
         true  -> {config_changed, Config1};
         false -> {continue, State #state { config = Config1 }}
     end;
-event({new_config, ConfigRemote, Node}, State = #state { config  = Config,
-                                                         node_id = NodeID }) ->
+event({new_config, ConfigRemote, Node},
+      State = #state { node_id = NodeID, config = Config }) ->
     case rabbit_clusterer_config:compare(ConfigRemote, Config) of
         older   -> ok = rabbit_clusterer_coordinator:send_new_config(Config, Node),
                    {continue, State};
@@ -95,9 +95,9 @@ event({new_config, ConfigRemote, Node}, State = #state { config  = Config,
     end.
 
 
-request_status(State = #state { comms   = Comms,
-                                node_id = NodeID,
-                                config  = Config }) ->
+request_status(State = #state { node_id = NodeID,
+                                config  = Config,
+                                comms   = Comms }) ->
     MyNode = node(),
     NodesNotUs = rabbit_clusterer_config:nodenames(Config) -- [MyNode],
     ok = rabbit_clusterer_comms:multi_call(
