@@ -2,9 +2,10 @@
 
 -include("rabbit_clusterer.hrl").
 
--export([load/2, load/1, store_internal/2, to_proplist/2, transfer_map/2,
-         update_node_id/4, add_node_ids/3, add_node_id/4, compare/2,
-         is_compatible/2, contains_node/2, nodenames/1, disc_nodenames/1]).
+-export([load/2, load/1, store_internal/2, to_proplist/2,
+         transfer_map/2, update_node_id/4, add_node_ids/3, add_node_id/4,
+         compare/2, is_compatible/2,
+         contains_node/2, nodenames/1, disc_nodenames/1]).
 
 %%----------------------------------------------------------------------------
 
@@ -78,8 +79,6 @@ load_internal() ->
 store_internal(NodeID, Config) ->
     ok = rabbit_file:write_term_file(internal_path(),
                                      [to_proplist(NodeID, Config)]).
-
-%%----------------------------------------------------------------------------
 
 choose_external_or_internal(undefined, undefined) ->
     {ok, NodeID, NewConfig} = default_config(),
