@@ -78,13 +78,13 @@ configure_cluster(NodeDict) ->
 
 %% The input is a k/v list of nodes and their config+status tuples (or
 %% the atom 'preboot' if the node is in the process of starting up),
-%% plus the local node's config and id.
+%% plus the local node's id and config.
 %%
 %% Returns a tuple containing
 %% 1) the youngest config of all, with an enriched map_node_id
 %% 2) a list of nodes operating with configs older than the local node's
 %% 3) a dict mapping status to lists of nodes
-analyse_node_statuses(NodeConfigStatusList, Config, NodeID) ->
+analyse_node_statuses(NodeConfigStatusList, NodeID, Config) ->
     case lists:foldr(
            fun (Elem, Acc) -> analyse_node_status(Config, Elem, Acc) end,
            {Config, [], [], dict:new()}, NodeConfigStatusList) of

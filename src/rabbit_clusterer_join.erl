@@ -32,7 +32,8 @@ event({comms, {[], _BadNodes}}, State = #state { status = awaiting_status }) ->
 event({comms, {Replies, BadNodes}}, State = #state { status  = awaiting_status,
                                                      config  = Config,
                                                      node_id = NodeID }) ->
-    case rabbit_clusterer_utils:analyse_node_statuses(Replies, Config, NodeID) of
+    case rabbit_clusterer_utils:analyse_node_statuses(Replies,
+                                                      NodeID, Config) of
         invalid ->
             {invalid_config, Config};
         {Youngest, OlderThanUs, StatusDict} ->
