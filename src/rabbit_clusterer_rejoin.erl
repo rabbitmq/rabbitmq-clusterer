@@ -85,7 +85,7 @@
 %% also gets a new lock as the lock is the comms Pid itself. So when B
 %% restarts its comms, it's unlocking itself too.
 
-init(Config = #config { nodes = Nodes }, NodeID, Comms) ->
+init(NodeID, Config = #config { nodes = Nodes }, Comms) ->
     MyNode = node(),
     case Nodes of
         [{MyNode, disc}] ->

@@ -453,7 +453,7 @@ begin_transition(NewConfig, State = #state { status  = Status,
                                                    nodes       = [] }),
                     State2 = set_status(TModule, State1),
                     process_transitioner_response(
-                      TModule:init(NewConfig1, NodeID, Comms),
+                      TModule:init(NodeID, NewConfig1, Comms),
                       State2)
             end
     end.

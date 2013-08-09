@@ -6,7 +6,7 @@
 
 -include("rabbit_clusterer.hrl").
 
-init(Config = #config { nodes = Nodes, gospel = Gospel }, NodeID, Comms) ->
+init(NodeID, Config = #config { nodes = Nodes, gospel = Gospel }, Comms) ->
     MyNode = node(),
     case Nodes of
         [{MyNode, disc}] when Gospel =:= reset ->
