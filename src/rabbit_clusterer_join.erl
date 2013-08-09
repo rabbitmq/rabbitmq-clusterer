@@ -13,7 +13,7 @@ init(NodeID, Config = #config { nodes = Nodes, gospel = Gospel }, Comms) ->
             ok = rabbit_clusterer_utils:wipe_mnesia(),
             {success, Config};
         [{MyNode, disc}] ->
-            {node, MyNode} = Gospel, %% assertion
+            {node, MyNode} = Gospel, %% ASSERTION
             ok = rabbit_clusterer_utils:eliminate_mnesia_dependencies([]),
             {success, Config};
         [_|_] ->
