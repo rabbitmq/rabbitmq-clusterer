@@ -44,7 +44,8 @@ event({comms, {Replies, BadNodes}}, State = #state { status  = awaiting_status,
                     %% reality they're likely to receive lots of the
                     %% same update from everyone else, but meh,
                     %% they'll just have to cope.
-                    update_remote_nodes(OlderThanUs, Youngest, State);
+                    update_remote_nodes(OlderThanUs, Youngest,
+                                        State #state { config = Youngest });
                 younger -> %% cannot be older or invalid
                     {config_changed, Youngest}
             end
