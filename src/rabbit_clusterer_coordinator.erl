@@ -534,11 +534,10 @@ reschedule_shutdown(
 reschedule_shutdown(State) ->
     State.
 
-update_monitoring(
-  State = #state { status      = Status,
-                   config      = ConfigNew,
-                   nodes       = NodesOld,
-                   alive_mrefs = AliveOld })
+update_monitoring(State = #state { status      = Status,
+                                   config      = ConfigNew,
+                                   nodes       = NodesOld,
+                                   alive_mrefs = AliveOld })
   when Status =:= ready orelse Status =:= pending_shutdown ->
     ok = send_new_config(ConfigNew, NodesOld),
     [demonitor(MRef) || MRef <- AliveOld],
