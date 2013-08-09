@@ -6,7 +6,8 @@
          rabbit_booted/0,
          send_new_config/2,
          template_new_config/1,
-         apply_config/1]).
+         apply_config/1,
+         request_status/1]).
 
 -export([start_link/0, init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
@@ -54,6 +55,10 @@ template_new_config(Config) -> {new_config, Config, node()}.
 apply_config(Config) ->
     gen_server:call(?SERVER, {apply_config, Config}, infinity).
 
+request_status(Node) ->
+    gen_server:call(
+      {?SERVER, Node}, {request_status, undefined, <<>>}, infinity).
+
 %%----------------------------------------------------------------------------
 
 init([]) -> {ok, #state { status             = preboot,
@@ -77,7 +82,7 @@ init([]) -> {ok, #state { status             = preboot,
 %% request_status requires a response and is only used by the
 %% transitioners to perform coordination when joining or rejoining a
 %% cluster. new_config is perhaps misnamed, but is only sent when a
-%% config has been achieved (running). new_config is used to update
+%% config has been achieved (ready). new_config is used to update
 %% nodes that we come across through some means that we think they're
 %% running an old config and should be updated to run a newer config.
 %% It is also sent periodically to any missing nodes in the cluster to
@@ -105,7 +110,7 @@ handle_call({request_status, NewNode, NewNodeID}, _From,
                              config  = Config }) ->
     %% Status \in {pending_shutdown, booting, ready}
     %%
-    %% Consider we're running and we're already clustered with
+    %% Consider we're running (ready) and we're already clustered with
     %% NewNode, though it's currently down and is just coming back up,
     %% after being reset. At this point, we will learn of its new
     %% NodeID, but we must ignore that: if we merged it into our
@@ -240,7 +245,7 @@ handle_cast({new_config, ConfigRemote, Node},
     {noreply, transitioner_event({new_config, ConfigRemote, Node}, State)};
 handle_cast({new_config, ConfigRemote, Node},
             State = #state { node_id = NodeID, config = Config }) ->
-    %% Status is either running on pending_shutdown. In both cases, we
+    %% Status is either ready or pending_shutdown. In both cases, we
     %% a) know what our config really is; b) it's safe to begin
     %% transitions to other configurations.
     case rabbit_clusterer_config:compare(ConfigRemote, Config) of
@@ -257,7 +262,7 @@ handle_cast({new_config, ConfigRemote, Node},
                           NodeID, Config1),
                    {noreply, State #state { config = Config1 }};
         invalid -> %% Whilst invalid, the fact is that we are stable -
-                   %% either running or pending_shutdown, so we don't
+                   %% either ready or pending_shutdown, so we don't
                    %% want to disturb that.
                    {noreply, State}
     end;

@@ -4,7 +4,8 @@
 
 -export([boot/0]).
 
--export([apply_config/0, apply_config/1]). %% for 'rabbitmqctl eval ...'
+-export([apply_config/0, apply_config/1,   %% for 'rabbitmqctl eval ...'
+         status/0, status/1]).
 
 -export([start/2, stop/1]).
 
@@ -26,6 +27,39 @@ boot() ->
 apply_config() -> apply_config(undefined).
 
 apply_config(Config) -> rabbit_clusterer_coordinator:apply_config(Config).
+
+status() ->
+    status(node()).
+
+status(Node) ->
+    {Message, Config, List} =
+        case rabbit_clusterer_coordinator:request_status(Node) of
+            preboot ->
+                {"Clusterer is booting.~n", undefined, []};
+            {Config1, booting} ->
+                {"Clusterer is booting Rabbit into cluster configuration: "
+                 "~n~s~n", Config1, []};
+            {Config1, ready} ->
+                {"Rabbit is running in cluster configuration: ~n~s~n"
+                 "Running nodes: ~p~n", Config1,
+                [rabbit_mnesia:cluster_nodes(running)]};
+            {Config1, pending_shutdown} ->
+                {"Clusterer has stopped Rabbit due to non-involvement with "
+                 "cluster configuration: ~n~s~n", Config1, []};
+            {Config1, {transitioner, rabbit_clusterer_join}} ->
+                {"Clusterer is trying to join into cluster configuration: "
+                 "~n~s~n", Config1, []};
+            {Config1, {transitioner, rabbit_clusterer_rejoin}} ->
+                {"Clusterer is trying to rejoin cluster configuration: ~n~s~n",
+                 Config1, []}
+        end,
+    Config2 = case Config of
+                  undefined -> "";
+                  _         -> rabbit_misc:format(
+                                 "~p", [tl(rabbit_clusterer_config:to_proplist(
+                                             undefined, Config))])
+              end,
+    io:format(Message, [Config2 | List]).
 
 %%----------------------------------------------------------------------------
 
