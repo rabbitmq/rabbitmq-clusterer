@@ -111,7 +111,7 @@ event({comms, {Replies, BadNodes}}, State = #state { status  = awaiting_status,
                 coeval when OlderThanUs =:= [] ->
                     maybe_rejoin(BadNodes, StatusDict,
                                  State #state { config = Youngest });
-                coveal ->
+                coeval ->
                     update_remote_nodes(OlderThanUs, Youngest,
                                         State #state { config = Youngest });
                 younger -> %% cannot be invalid or older
