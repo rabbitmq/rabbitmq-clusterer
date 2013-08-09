@@ -423,8 +423,8 @@ begin_transition(NewConfig, State = #state { node_id = NodeID,
                          {_    , true } -> {transitioner, ?REJOIN};
                          {_    , false} -> {transitioner, ?JOIN}
                      end,
-            NewConfig1 = rabbit_clusterer_config:transfer_map(NewConfig,
-                                                              OldConfig),
+            NewConfig1 = rabbit_clusterer_config:transfer_map(OldConfig,
+                                                              NewConfig),
             case Action of
                 noop ->
                     ok = rabbit_clusterer_config:store_internal(

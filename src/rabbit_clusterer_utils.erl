@@ -93,8 +93,8 @@ analyse_node_statuses(NodeConfigStatusList, Config, NodeID) ->
         {Youngest, Older, IDs, Status} ->
             %% We want to make sure anything that we had in Config
             %% that does not exist in IDs is still maintained.
-            YoungestOrigMap =
-                rabbit_clusterer_config:transfer_map(Youngest, Config),
+            YoungestOrigMap = rabbit_clusterer_config:transfer_map(Config,
+                                                                   Youngest),
             {rabbit_clusterer_config:add_node_ids(IDs, NodeID, YoungestOrigMap),
              Older, Status}
     end.

@@ -268,9 +268,9 @@ normalise_nodes(Nodes) when is_list(Nodes) ->
 
 %%----------------------------------------------------------------------------
 
-transfer_map(Dest, undefined) ->
+transfer_map(undefined, Dest) ->
     Dest;
-transfer_map(Dest = #config { }, #config { map_node_id = Map }) ->
+transfer_map(#config { map_node_id = Map }, Dest = #config { }) ->
     Dest #config { map_node_id = Map }.
 
 update_node_id(Node, #config { map_node_id = NodeToIDRemote },
