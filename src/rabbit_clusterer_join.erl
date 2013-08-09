@@ -56,7 +56,7 @@ event({delayed_request_status, _Ref}, State) ->
     %% ignore it
     {continue, State};
 event({request_config, NewNode, NewNodeID, Fun},
-      State = #state { config = Config, node_id = NodeID }) ->
+      State = #state { node_id = NodeID, config = Config }) ->
     {NodeIDChanged, Config1} =
         rabbit_clusterer_config:add_node_id(NewNode, NewNodeID, NodeID, Config),
     ok = Fun(Config1),
