@@ -18,7 +18,8 @@ changing clusters: `join_cluster`, `change_cluster_node_type`,
 you do use these, behaviour is undefined, and most likely
 bad. `rabbitmqctl cluster_status` may be used to inspect a cluster
 state, but the Clusterer sends to the standard Rabbit log files
-details about any clusters it joins or leaves.
+details about any clusters it joins or leaves. See the *Inspecting the
+Clusterer Status* section further down.
 
 Furthermore, do not specify `cluster_nodes` in the Rabbit config file:
 it will be ignored.
@@ -297,3 +298,15 @@ and thus determine the youngest config. You need to ensure it can do
 this. If you're building cluster configs automatically, one sensible
 approach would be to set the version to the number of seconds since
 epoch, for example.
+
+
+## Inspecting the Clusterer Status
+
+Whilst `rabbitmqctl cluster_status` will give a indication of the
+cluster status, it doesn't interact with the clusterer and so presents
+only limited information. Instead, use `rabbitmqctl eval
+'rabbit_clusterer:status().'`. This will more detailed information
+about which config is in operation by the node and what the clusterer
+is trying to do. If the cluster has been established then the command
+will also display which nodes are known to be currently up and
+running.
