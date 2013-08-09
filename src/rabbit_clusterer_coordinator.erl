@@ -267,6 +267,15 @@ handle_cast(rabbit_booted, State = #state { status = booting }) ->
     %% booting so it should be safe to assert we can only receive
     %% ready_to_cluster when in booting.
     {noreply, set_status(ready, State)};
+handle_cast(rabbit_booted, State = #state { status = preboot }) ->
+    %% Very likely they forgot to edit the rabbit-server
+    %% script. Complain very loudly.
+    Msg = "RabbitMQ Clusterer is enabled as a plugin but has "
+        "not been started correctly. Terminating RabbitMQ.~n",
+    error_logger:error_msg(Msg, []),
+    io:format(Msg, []),
+    init:stop(),
+    {noreply, State};
 
 handle_cast({lock, Locker}, State = #state { comms = undefined }) ->
     gen_server:cast(Locker, {lock_rejected, node()}),
