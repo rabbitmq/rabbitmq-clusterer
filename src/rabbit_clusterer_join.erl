@@ -6,20 +6,15 @@
 
 -include("rabbit_clusterer.hrl").
 
-init(Config = #config { nodes = Nodes,
-                        gospel = Gospel }, NodeID, Comms) ->
+init(Config = #config { nodes = Nodes, gospel = Gospel }, NodeID, Comms) ->
     MyNode = node(),
     case Nodes of
+        [{MyNode, disc}] when Gospel =:= reset ->
+            ok = rabbit_clusterer_utils:wipe_mnesia(),
+            {success, Config};
         [{MyNode, disc}] ->
-            ok =
-                case Gospel of
-                    reset ->
-                        rabbit_clusterer_utils:wipe_mnesia();
-                    {node, _Node} ->
-                        %% _config:from_proplist ensures if we're here,
-                        %% _Node must be =:= node().
-                        rabbit_clusterer_utils:eliminate_mnesia_dependencies([])
-                 end,
+            {node, MyNode} = Gospel, %% assertion
+            ok = rabbit_clusterer_utils:eliminate_mnesia_dependencies([]),
             {success, Config};
         [_|_] ->
             request_status(#state { config  = Config,
