@@ -104,10 +104,10 @@ init(Kind, NodeID, Config = #config { nodes = Nodes }, Comms) ->
             ok = rabbit_clusterer_utils:eliminate_mnesia_dependencies([]),
             {success, Config};
         [_|_] ->
-            request_status(#state { kind    = Kind,
-                                    node_id = NodeID,
-                                    config  = Config,
-                                    comms   = Comms,
+            request_status(#state { kind     = Kind,
+                                    node_id  = NodeID,
+                                    config   = Config,
+                                    comms    = Comms,
                                     awaiting = undefined,
                                     joining  = [] })
     end.
