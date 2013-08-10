@@ -121,18 +121,18 @@ maybe_join(AllGoodNodes, Statuses, State = #state { config = Config }) ->
     %%
     %% Expected entries in Statuses are:
     %% - preboot:
-    %%    clusterer has started, but the boot step not yet hit
+    %%    Clusterer has started, but the boot step not yet hit
     %% - {transitioner, rabbit_clusterer_join} (i.e. ?MODULE):
-    %%    it's joining some cluster - blocked in clusterer
+    %%    it's joining some cluster - blocked in Clusterer
     %% - {transitioner, rabbit_clusterer_rejoin}:
-    %%    it's rejoining some cluster - blocked in clusterer
+    %%    it's rejoining some cluster - blocked in Clusterer
     %% - booting:
-    %%    clusterer is happy and the rest of rabbit is currently
+    %%    Clusterer is happy and the rest of rabbit is currently
     %%    booting
     %% - ready:
-    %%    clusterer is happy and enough of rabbit has booted
+    %%    Clusterer is happy and enough of rabbit has booted
     %% - pending_shutdown:
-    %%    clusterer is waiting for the shutdown timeout and will then
+    %%    Clusterer is waiting for the shutdown timeout and will then
     %%    exit
     ReadyNodes = lists:member(ready, Statuses),
     AllJoining = [{transitioner, ?MODULE}] =:= Statuses,
