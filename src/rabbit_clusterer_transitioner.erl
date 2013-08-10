@@ -100,9 +100,7 @@ init(Kind, NodeID, Config = #config { nodes = Nodes }, Comms) ->
             ok = rabbit_clusterer_utils:wipe_mnesia(),
             {success, Config};
         [{MyNode, disc}] ->
-            %% TODO: the following assertion came from 'join'; is it
-            %% also valid for 'rejoin'?
-            %% {node, MyNode} = Gospel, %% ASSERTION
+            {node, MyNode} = Gospel, %% ASSERTION
             ok = rabbit_clusterer_utils:eliminate_mnesia_dependencies([]),
             {success, Config};
         [_|_] ->
