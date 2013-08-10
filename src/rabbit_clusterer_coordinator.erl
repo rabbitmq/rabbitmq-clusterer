@@ -15,9 +15,8 @@
 -define(SERVER, ?MODULE).
 -define(JOIN  , rabbit_clusterer_join).
 -define(REJOIN, rabbit_clusterer_rejoin).
--define(IS_TRANSITIONER_MODULE(X), (X =:= ?JOIN orelse X =:= ?REJOIN)).
--define(IS_TRANSITIONER(X),
-        (X =:= {transitioner, ?JOIN} orelse X =:= {transitioner, ?REJOIN})).
+-define(IS_TRANSITIONER(X), (X =:= {transitioner, ?JOIN} orelse
+                             X =:= {transitioner, ?REJOIN})).
 
 -record(state, { status,
                  node_id,
@@ -376,14 +375,11 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 %% booting           -> pending_shutdown
 %% ready             -> pending_shutdown
 
-
-set_status(NewStatus, State = #state { status = {transitioner, _} })
-  when ?IS_TRANSITIONER_MODULE(NewStatus) ->
-    State #state { status = {transitioner, NewStatus} };
-set_status(NewStatus, State = #state { status = OldStatus })
-  when (OldStatus =:= preboot orelse OldStatus =:= pending_shutdown)
-       andalso ?IS_TRANSITIONER_MODULE(NewStatus) ->
-    State #state { status = {transitioner, NewStatus} };
+set_status(NewStatus, State = #state { status = Status })
+  when ?IS_TRANSITIONER(NewStatus) andalso (Status =:= preboot orelse
+                                            ?IS_TRANSITIONER(Status) orelse
+                                            Status =:= pending_shutdown) ->
+    State #state { status = NewStatus };
 set_status(pending_shutdown, State = #state { status = ready }) ->
     %% Even though we think we're ready, there might still be some
     %% rabbit boot actions going on...
@@ -392,8 +388,8 @@ set_status(pending_shutdown, State = #state { status = ready }) ->
     ok = rabbit_clusterer_utils:stop_rabbit(),
     ok = rabbit_clusterer_utils:stop_mnesia(),
     State #state { status = pending_shutdown };
-set_status(pending_shutdown, State = #state { status = Status }) ->
-    true = Status =/= booting, %% ASSERTION
+set_status(pending_shutdown, State = #state { status = Status })
+  when Status =/= booting ->
     State #state { status = pending_shutdown };
 set_status(booting, State = #state { status  = {transitioner, _},
                                      booted  = Booted,
@@ -465,7 +461,7 @@ begin_transition(NewConfig, State = #state { status  = Status,
                         fresh_comms(State #state { alive_mrefs = [],
                                                    dead        = [],
                                                    nodes       = [] }),
-                    State2 = set_status(TModule, State1),
+                    State2 = set_status({transitioner, TModule}, State1),
                     process_transitioner_response(
                       TModule:init(NodeID, NewConfig1, Comms),
                       State2)
