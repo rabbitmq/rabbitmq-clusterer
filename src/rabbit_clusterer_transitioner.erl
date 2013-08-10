@@ -92,36 +92,24 @@
 %% API
 %%----------------------------------------------------------------------------
 
-init(join, NodeID, Config = #config { nodes = Nodes }, Comms) ->
+init(Kind, NodeID, Config = #config { nodes = Nodes }, Comms) ->
     MyNode = node(),
     Gospel = Config #config.gospel,
     case Nodes of
-        [{MyNode, disc}] when Gospel =:= reset ->
+        [{MyNode, disc}] when Kind =:= join andalso Gospel =:= reset ->
             ok = rabbit_clusterer_utils:wipe_mnesia(),
             {success, Config};
         [{MyNode, disc}] ->
-            {node, MyNode} = Gospel, %% ASSERTION
+            %% TODO: the following assertion came from 'join'; is it
+            %% also valid for 'rejoin'?
+            %% {node, MyNode} = Gospel, %% ASSERTION
             ok = rabbit_clusterer_utils:eliminate_mnesia_dependencies([]),
             {success, Config};
         [_|_] ->
-            request_status(#state { kind    = join,
+            request_status(#state { kind    = Kind,
                                     node_id = NodeID,
                                     config  = Config,
                                     comms   = Comms,
-                                    awaiting = undefined,
-                                    joining  = [] })
-    end;
-init(rejoin, NodeID, Config = #config { nodes = Nodes }, Comms) ->
-    MyNode = node(),
-    case Nodes of
-        [{MyNode, disc}] ->
-            ok = rabbit_clusterer_utils:eliminate_mnesia_dependencies([]),
-            {success, Config};
-        [_|_] ->
-            request_status(#state { kind     = rejoin,
-                                    node_id  = NodeID,
-                                    config   = Config,
-                                    comms    = Comms,
                                     awaiting = undefined,
                                     joining  = [] })
     end.
