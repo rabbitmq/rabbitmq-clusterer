@@ -253,13 +253,13 @@ There are a couple of ways to specify a cluster config:
 * `rabbitmqctl eval 'rabbit_clusterer:apply_config().'`
   
   **This will only have any effect if there is an entry in the
-  `rabbitmq.config` file for the clusterer as above, and a path is
+  `rabbitmq.config` file for the Clusterer as above, and a path is
   specified as the value rather than a config directly.**
   
   If that is the case, then this will cause the node to reload the
   file containing cluster config and apply it. Note that you cannot
   change the path itself in the `rabbitmq.config` file dynamically:
-  neither Rabbit nor the clusterer will pick up any changes to that
+  neither Rabbit nor the Clusterer will pick up any changes to that
   file without restarting the whole Erlang node.
 
 * `rabbitmqctl eval 'rabbit_clusterer:apply_config("/path/to/my/other/cluster.config").'`
