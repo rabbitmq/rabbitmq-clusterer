@@ -302,11 +302,10 @@ epoch, for example.
 
 ## Inspecting the Clusterer Status
 
-Whilst `rabbitmqctl cluster_status` will give a indication of the
-cluster status, it doesn't interact with the clusterer and so presents
-only limited information. Instead, use `rabbitmqctl eval
-'rabbit_clusterer:status().'`. This will more detailed information
-about which config is in operation by the node and what the clusterer
-is trying to do. If the cluster has been established then the command
+`rabbitmqctl cluster_status` presents basic information about
+clusters, but does not interact with the Clusterer. `rabbitmqctl eval
+'rabbit_clusterer:status().'`, on the other hand, does, and shows
+which config is in operation by the node and what the Clusterer is
+trying to do. If the cluster has been established then the command
 will also display which nodes are known to be currently up and
 running.
