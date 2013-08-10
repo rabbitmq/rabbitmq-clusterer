@@ -13,10 +13,9 @@
          terminate/2, code_change/3]).
 
 -define(SERVER, ?MODULE).
--define(JOIN  , rabbit_clusterer_join).
--define(REJOIN, rabbit_clusterer_rejoin).
--define(IS_TRANSITIONER(X), (X =:= {transitioner, ?JOIN} orelse
-                             X =:= {transitioner, ?REJOIN})).
+
+-define(IS_TRANSITIONER(X), (X =:= {transitioner, join} orelse
+                             X =:= {transitioner, rejoin})).
 
 -record(state, { status,
                  node_id,
@@ -134,13 +133,13 @@ handle_call({request_status, NewNode, NewNodeID}, _From,
     {reply, {Config1, Status},
      reschedule_shutdown(State #state { config = Config1 })};
 
-%% This is where a call from TModule on one node to TModule on another
-%% node lands.
-handle_call({{transitioner, _TModule} = Status, Msg}, From,
+%% This is where a call from the transitioner on one node to the
+%% transitioner on another node lands.
+handle_call({{transitioner, _TKind} = Status, Msg}, From,
             State = #state { status = Status }) ->
     Fun = fun (Result) -> gen_server:reply(From, Result), ok end,
     {noreply, transitioner_event({Msg, Fun}, State)};
-handle_call({{transitioner, _TModule}, _Msg}, _From, State) ->
+handle_call({{transitioner, _TKind}, _Msg}, _From, State) ->
     {reply, invalid, State};
 
 handle_call({apply_config, NewConfig}, From,
@@ -363,14 +362,14 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 
 %% Here we enforce the state machine of valid changes to status.
 
-%% preboot           -> a transitioner module ({transitioner, TModule})
+%% preboot           -> a transitioner ({transitioner, TKind})
 %% preboot           -> pending_shutdown
-%% {transitioner, _} -> a transitioner module
+%% {transitioner, _} -> a transitioner
 %% {transitioner, _} -> pending_shutdown
 %% {transitioner, _} -> booting
 %% pending_shutdown  -> shutdown
 %% pending_shutdown  -> pending_shutdown
-%% pending_shutdown  -> a transitioner module
+%% pending_shutdown  -> a transitioner
 %% booting           -> ready
 %% booting           -> pending_shutdown
 %% ready             -> pending_shutdown
@@ -430,8 +429,8 @@ begin_transition(NewConfig, State = #state { status  = Status,
             Action = case {Status, Compatible} of
                          {ready, true } -> noop;
                          {ready, false} -> reboot;
-                         {_    , true } -> {transitioner, ?REJOIN};
-                         {_    , false} -> {transitioner, ?JOIN}
+                         {_    , true } -> {transitioner, rejoin};
+                         {_    , false} -> {transitioner, join}
                      end,
             NewConfig1 = rabbit_clusterer_config:transfer_map(OldConfig,
                                                               NewConfig),
@@ -453,7 +452,7 @@ begin_transition(NewConfig, State = #state { status  = Status,
                     %% reboot.
                     begin_transition(
                       NewConfig, set_status(pending_shutdown, State));
-                {transitioner, TModule} ->
+                {transitioner, TKind} ->
                     ok = send_new_config(NewConfig1, Nodes),
                     %% Wipe out alive_mrefs and dead so that if we get
                     %% DOWN's we don't care about them.
@@ -461,15 +460,20 @@ begin_transition(NewConfig, State = #state { status  = Status,
                         fresh_comms(State #state { alive_mrefs = [],
                                                    dead        = [],
                                                    nodes       = [] }),
-                    State2 = set_status({transitioner, TModule}, State1),
+                    State2 = set_status({transitioner, TKind}, State1),
+                    TModule = transitioner_module(TKind),
                     process_transitioner_response(
                       TModule:init(NodeID, NewConfig1, Comms),
                       State2)
             end
     end.
 
-transitioner_event(Event, State = #state { status = {transitioner, TModule},
+transitioner_module(join)   -> rabbit_clusterer_join;
+transitioner_module(rejoin) -> rabbit_clusterer_rejoin.
+
+transitioner_event(Event, State = #state { status = {transitioner, TKind},
                                            transitioner_state = TState }) ->
+    TModule = transitioner_module(TKind),
     process_transitioner_response(TModule:event(Event, TState), State).
 
 process_transitioner_response({continue, TState}, State) ->

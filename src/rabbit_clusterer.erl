@@ -46,10 +46,10 @@ status(Node) ->
             {Config1, pending_shutdown} ->
                 {"Clusterer has stopped Rabbit due to non-involvement with "
                  "cluster configuration: ~n~s~n", Config1, []};
-            {Config1, {transitioner, rabbit_clusterer_join}} ->
+            {Config1, {transitioner, join}} ->
                 {"Clusterer is trying to join into cluster configuration: "
                  "~n~s~n", Config1, []};
-            {Config1, {transitioner, rabbit_clusterer_rejoin}} ->
+            {Config1, {transitioner, rejoin}} ->
                 {"Clusterer is trying to rejoin cluster configuration: ~n~s~n",
                  Config1, []}
         end,

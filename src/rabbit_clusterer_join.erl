@@ -122,9 +122,9 @@ maybe_join(AllGoodNodes, Statuses, State = #state { config = Config }) ->
     %% Expected entries in Statuses are:
     %% - preboot:
     %%    Clusterer has started, but the boot step not yet hit
-    %% - {transitioner, rabbit_clusterer_join} (i.e. ?MODULE):
+    %% - {transitioner, join}:
     %%    it's joining some cluster - blocked in Clusterer
-    %% - {transitioner, rabbit_clusterer_rejoin}:
+    %% - {transitioner, rejoin}:
     %%    it's rejoining some cluster - blocked in Clusterer
     %% - booting:
     %%    Clusterer is happy and the rest of rabbit is currently
@@ -135,7 +135,7 @@ maybe_join(AllGoodNodes, Statuses, State = #state { config = Config }) ->
     %%    Clusterer is waiting for the shutdown timeout and will then
     %%    exit
     ReadyNodes = lists:member(ready, Statuses),
-    AllJoining = [{transitioner, ?MODULE}] =:= Statuses,
+    AllJoining = [{transitioner, join}] =:= Statuses,
     %% ReadyNodes are nodes that are in this cluster (well, they could
     %% be in any cluster, but seeing as we've checked everyone has the
     %% same cluster config as us, we're sure it really is *this*
@@ -150,7 +150,7 @@ maybe_join(AllGoodNodes, Statuses, State = #state { config = Config }) ->
     %%
     %% If ReadyNodes doesn't exist we can only safely proceed if there
     %% are no BadNodes, and everyone is joining (rather than
-    %% rejoining) i.e. transition module for all is ?MODULE. In all
+    %% rejoining) i.e. transitioner kind for all is 'join'. In all
     %% other cases, we must wait:
     %%
     %% - If BadNodes =/= [] then there may be a node that was cleanly
@@ -158,7 +158,7 @@ maybe_join(AllGoodNodes, Statuses, State = #state { config = Config }) ->
     %% if it was started up, it would rejoin (itself, sort of) and
     %% then become ready: we could then sync to it.
     %%
-    %% - If the transition module is not all ?MODULE then some other
+    %% - If the transitioner kind is not all 'join' then some other
     %% nodes must be rejoining. We should wait for them to succeed (or
     %% at least change state) because if they do succeed we should
     %% sync off them.

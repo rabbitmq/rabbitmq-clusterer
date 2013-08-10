@@ -210,7 +210,7 @@ event({new_config, ConfigRemote, Node},
 
 collect_dependency_graph(RejoiningNodes, State = #state { comms = Comms }) ->
     ok = rabbit_clusterer_comms:multi_call(
-           RejoiningNodes, {{transitioner, ?MODULE}, request_awaiting}, Comms),
+           RejoiningNodes, {{transitioner, rejoin}, request_awaiting}, Comms),
     {continue, State #state { status = awaiting_awaiting }}.
 
 
@@ -255,8 +255,7 @@ maybe_rejoin(BadNodes, StatusDict,
                   MyNode, ordsets:intersection(
                             DiscSet, ordsets:from_list(Running))),
             BadNodesSet = ordsets:from_list(BadNodes),
-            Joining = case dict:find({transitioner, rabbit_clusterer_join},
-                                     StatusDict) of
+            Joining = case dict:find({transitioner, join}, StatusDict) of
                           {ok, List} -> List;
                           error      -> []
                       end,
@@ -268,7 +267,7 @@ maybe_rejoin(BadNodes, StatusDict,
                 true ->
                     %% Everyone we depend on is alive in some form.
                     case {ordsets:size(NotJoiningSet),
-                          dict:find({transitioner, ?MODULE}, StatusDict)} of
+                          dict:find({transitioner, rejoin}, StatusDict)} of
                         {0, _} ->
                             %% We win!
                             lock_nodes(State1);
