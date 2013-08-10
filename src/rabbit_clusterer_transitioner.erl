@@ -382,7 +382,6 @@ collect_dependency_graph(RejoiningNodes, State = #state { comms = Comms }) ->
            RejoiningNodes, {{transitioner, rejoin}, request_awaiting}, Comms),
     {continue, State #state { status = awaiting_awaiting }}.
 
-
 maybe_rejoin(BadNodes, StatusDict,
              State = #state { config = Config = #config { nodes = Nodes } }) ->
     %% Everyone who's here is on the same config as us. If anyone is
