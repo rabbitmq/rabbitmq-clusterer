@@ -461,20 +461,17 @@ begin_transition(NewConfig, State = #state { status  = Status,
                                                    dead        = [],
                                                    nodes       = [] }),
                     State2 = set_status({transitioner, TKind}, State1),
-                    TModule = transitioner_module(TKind),
                     process_transitioner_response(
-                      TModule:init(NodeID, NewConfig1, Comms),
+                      rabbit_clusterer_transitioner:init(
+                        TKind, NodeID, NewConfig1, Comms),
                       State2)
             end
     end.
 
-transitioner_module(join)   -> rabbit_clusterer_join;
-transitioner_module(rejoin) -> rabbit_clusterer_rejoin.
-
-transitioner_event(Event, State = #state { status = {transitioner, TKind},
+transitioner_event(Event, State = #state { status = {transitioner, _TKind},
                                            transitioner_state = TState }) ->
-    TModule = transitioner_module(TKind),
-    process_transitioner_response(TModule:event(Event, TState), State).
+    process_transitioner_response(
+      rabbit_clusterer_transitioner:event(Event, TState), State).
 
 process_transitioner_response({continue, TState}, State) ->
     State #state { transitioner_state = TState };
