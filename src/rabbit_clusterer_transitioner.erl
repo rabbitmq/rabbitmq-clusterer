@@ -117,7 +117,7 @@ init(Kind, NodeID, Config = #config { nodes = Nodes }, Comms) ->
 event({comms, {[], _BadNodes}}, State = #state { kind   = join,
                                                  status = awaiting_status }) ->
     delayed_request_status(State);
-event({comms, {Replies, BadNodes}}, State = #state { kind    = join,
+event({comms, {Replies, BadNodes}}, State = #state { kind    = Kind,
                                                      status  = awaiting_status,
                                                      node_id = NodeID,
                                                      config  = Config }) ->
@@ -131,8 +131,11 @@ event({comms, {Replies, BadNodes}}, State = #state { kind    = join,
                     %% We have the most up to date config. But we must
                     %% use Youngest from here on as it has the updated
                     %% node_id_maps.
-                    maybe_join(BadNodes =:= [], dict:fetch_keys(StatusDict),
-                               State #state { config = Youngest });
+                    (case Kind of
+                         join   -> fun maybe_join/3;
+                         rejoin -> fun maybe_rejoin/3
+                     end)(BadNodes, StatusDict,
+                          State #state { config = Youngest });
                 coeval ->
                     %% Update nodes which are older than us. In
                     %% reality they're likely to receive lots of the
@@ -141,26 +144,6 @@ event({comms, {Replies, BadNodes}}, State = #state { kind    = join,
                     update_remote_nodes(OlderThanUs, Youngest,
                                         State #state { config = Youngest });
                 younger -> %% cannot be older or invalid
-                    {config_changed, Youngest}
-            end
-    end;
-event({comms, {Replies, BadNodes}}, State = #state { kind    = rejoin,
-                                                     status  = awaiting_status,
-                                                     node_id = NodeID,
-                                                     config  = Config }) ->
-    case rabbit_clusterer_utils:analyse_node_statuses(Replies,
-                                                      NodeID, Config) of
-        invalid ->
-            {invalid_config, Config};
-        {Youngest, OlderThanUs, StatusDict} ->
-            case rabbit_clusterer_config:compare(Youngest, Config) of
-                coeval when OlderThanUs =:= [] ->
-                    maybe_rejoin(BadNodes, StatusDict,
-                                 State #state { config = Youngest });
-                coeval ->
-                    update_remote_nodes(OlderThanUs, Youngest,
-                                        State #state { config = Youngest });
-                younger -> %% cannot be invalid or older
                     {config_changed, Youngest}
             end
     end;
@@ -275,7 +258,7 @@ event({new_config, ConfigRemote, Node},
 %% 'join' helpers
 %%----------------------------------------------------------------------------
 
-maybe_join(AllGoodNodes, Statuses, State = #state { config = Config }) ->
+maybe_join(BadNodes, StatusDict, State = #state { config = Config }) ->
     %% Everyone here has the same config, thus Statuses can be trusted
     %% as the statuses of all nodes trying to achieve *this* config
     %% and not some other config.
@@ -295,6 +278,7 @@ maybe_join(AllGoodNodes, Statuses, State = #state { config = Config }) ->
     %% - pending_shutdown:
     %%    Clusterer is waiting for the shutdown timeout and will then
     %%    exit
+    Statuses   = dict:fetch_keys(StatusDict),
     ReadyNodes = lists:member(ready, Statuses),
     AllJoining = [{transitioner, join}] =:= Statuses,
     %% ReadyNodes are nodes that are in this cluster (well, they could
@@ -327,7 +311,7 @@ maybe_join(AllGoodNodes, Statuses, State = #state { config = Config }) ->
         true ->
             ok = cluster_with_nodes(Config),
             {success, Config};
-        false when AllJoining andalso AllGoodNodes ->
+        false when AllJoining andalso BadNodes =:= [] ->
             case maybe_form_new_cluster(Config) of
                 true  -> {success, Config};
                 false -> delayed_request_status(State)
