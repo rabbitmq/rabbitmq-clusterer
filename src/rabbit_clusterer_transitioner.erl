@@ -121,8 +121,7 @@ event({comms, {Replies, BadNodes}}, State = #state { kind    = Kind,
                                                      status  = awaiting_status,
                                                      node_id = NodeID,
                                                      config  = Config }) ->
-    case rabbit_clusterer_utils:analyse_node_statuses(Replies,
-                                                      NodeID, Config) of
+    case analyse_node_statuses(Replies, NodeID, Config) of
         invalid ->
             {invalid_config, Config};
         {Youngest, OlderThanUs, StatusDict} ->
@@ -454,3 +453,50 @@ update_remote_nodes(Nodes, Config, State = #state { comms = Comms }) ->
     ok = rabbit_clusterer_comms:multi_cast(Nodes, Msg, Comms),
     delayed_request_status(State).
 
+%% The input is a k/v list of nodes and their config+status tuples (or
+%% the atom 'preboot' if the node is in the process of starting up),
+%% plus the local node's id and config.
+%%
+%% Returns a tuple containing
+%% 1) the youngest config of all, with an enriched map_node_id
+%% 2) a list of nodes operating with configs older than the local node's
+%% 3) a dict mapping status to lists of nodes
+analyse_node_statuses(NodeConfigStatusList, NodeID, Config) ->
+    case lists:foldr(
+           fun (Elem, Acc) -> analyse_node_status(Config, Elem, Acc) end,
+           {Config, [], [], dict:new()}, NodeConfigStatusList) of
+        invalid ->
+            invalid;
+        {Youngest, Older, IDs, Status} ->
+            %% We want to make sure anything that we had in Config
+            %% that does not exist in IDs is still maintained.
+            YoungestOrigMap = rabbit_clusterer_config:transfer_map(Config,
+                                                                   Youngest),
+            {rabbit_clusterer_config:add_node_ids(IDs, NodeID, YoungestOrigMap),
+             Older, Status}
+    end.
+
+analyse_node_status(_Config, _Reply, invalid) ->
+    invalid;
+analyse_node_status(_Config, {Node, preboot},
+                    {YoungestN, OlderN, IDsN, StatusesN}) ->
+    {YoungestN, OlderN, IDsN, dict:append(preboot, Node, StatusesN)};
+analyse_node_status(Config, {Node, {ConfigN, StatusN}},
+                    {YoungestN, OlderN, IDsN, StatusesN}) ->
+    VsYoungest = rabbit_clusterer_config:compare(ConfigN, YoungestN),
+    VsConfig   = rabbit_clusterer_config:compare(ConfigN, Config),
+    case VsYoungest =:= invalid orelse VsConfig =:= invalid of
+        true  -> invalid;
+        false -> YoungestN1 = case VsYoungest of
+                                  younger -> ConfigN;
+                                  _       -> YoungestN
+                              end,
+                 OlderN1    = case VsConfig   of
+                                  older   -> [Node | OlderN];
+                                  _       -> OlderN
+                              end,
+                 NodeIDN = orddict:fetch(Node, ConfigN #config.map_node_id),
+                 IDsN1 = [{Node, NodeIDN} | IDsN],
+                 StatusesN1 = dict:append(StatusN, Node, StatusesN),
+                 {YoungestN1, OlderN1, IDsN1, StatusesN1}
+    end.
