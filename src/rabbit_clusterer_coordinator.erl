@@ -157,14 +157,14 @@ handle_call({apply_config, NewConfig}, From,
                         {new_config, NewConfig1, undefined}, State)};
         {{ok, NewConfig1}, _} ->
             case rabbit_clusterer_config:compare(NewConfig1, Config) of
-                older   -> {reply, {provided_config_is_older_than_current,
-                                    NewConfig1, Config}, State};
-                coeval  -> {reply, {provided_config_already_applied,
-                                    NewConfig1}, State};
                 younger -> gen_server:reply(
                              From, {beginning_transition_to_provided_config,
                                     NewConfig1}),
                            {noreply, begin_transition(NewConfig1, State)};
+                older   -> {reply, {provided_config_is_older_than_current,
+                                    NewConfig1, Config}, State};
+                coeval  -> {reply, {provided_config_already_applied,
+                                    NewConfig1}, State};
                 invalid ->
                     {reply,
                      {provided_config_has_same_version_but_differs_from_current,
@@ -247,13 +247,13 @@ handle_cast({new_config, ConfigRemote, Node},
     %% a) know what our config really is; b) it's safe to begin
     %% transitions to other configurations.
     case rabbit_clusterer_config:compare(ConfigRemote, Config) of
-        older   -> ok = send_new_config(Config, Node),
-                   {noreply, State};
         younger -> %% Remote is younger. We should switch to it. We
                    %% deliberately do not merge across the configs at
                    %% this stage as it would break is_compatible.
                    %% begin_transition will reboot if necessary.
                    {noreply, begin_transition(ConfigRemote, State)};
+        older   -> ok = send_new_config(Config, Node),
+                   {noreply, State};
         coeval  -> Config1 = rabbit_clusterer_config:update_node_id(
                                Node, ConfigRemote, NodeID, Config),
                    ok = rabbit_clusterer_config:store_internal(

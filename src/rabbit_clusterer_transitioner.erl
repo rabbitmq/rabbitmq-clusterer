@@ -221,8 +221,6 @@ event({request_config, NewNode, NewNodeID, Fun},
 event({new_config, ConfigRemote, Node},
       State = #state { node_id = NodeID, config = Config }) ->
     case rabbit_clusterer_config:compare(ConfigRemote, Config) of
-        older   -> ok = rabbit_clusterer_coordinator:send_new_config(Config, Node),
-                   {continue, State};
         younger -> %% Here we also need to make sure we forward this to
                    %% anyone we're currently trying to cluster with:
                    %% the fact that we're about to change which config
@@ -236,6 +234,8 @@ event({new_config, ConfigRemote, Node},
                           rabbit_clusterer_config:nodenames(Config) --
                               [node(), Node]),
                    {config_changed, ConfigRemote};
+        older   -> ok = rabbit_clusterer_coordinator:send_new_config(Config, Node),
+                   {continue, State};
         coeval  -> Config1 = rabbit_clusterer_config:update_node_id(
                                Node, ConfigRemote, NodeID, Config),
                    {continue, State #state { config = Config1 }};
