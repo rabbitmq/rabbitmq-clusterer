@@ -313,19 +313,15 @@ tidy_node_ids(NodeID, Config = #config { nodes = Nodes, node_ids = NodeIDs }) ->
 
 %%----------------------------------------------------------------------------
 
-%% We very deliberately completely ignore the node_ids field here. It is
-%% not semantically important from the POV of config equivalence.
-compare(#config { version = V, gospel = GA, nodes = NA, shutdown_timeout = TA },
-        #config { version = V, gospel = GB, nodes = NB, shutdown_timeout = TB }) ->
-    case {{GA, lists:usort(NA), TA}, {GB, lists:usort(NB), TB}} of
-        {EQ, EQ} -> coeval;
-        _        -> invalid
-    end;
-compare(#config { version = VA },
-        #config { version = VB }) ->
-    case VA > VB of
-        true  -> younger;
-        false -> older
+compare(ConfigA = #config { version = VA, nodes = NA },
+        ConfigB = #config { version = VB, nodes = NB }) ->
+    %% node order and node_ids are semantically irrevelant for comparison
+    case {ConfigA #config { nodes = lists:usort(NA), node_ids = undefined },
+          ConfigB #config { nodes = lists:usort(NB), node_ids = undefined }} of
+        {EQ, EQ}              -> coeval;
+        _        when VA > VB -> younger;
+        _        when VA < VB -> older;
+        _                     -> invalid
     end.
 
 %% If the config has changed, we need to figure out whether we need to
