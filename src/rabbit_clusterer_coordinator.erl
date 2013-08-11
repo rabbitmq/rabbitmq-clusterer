@@ -424,18 +424,10 @@ begin_transition(NewConfig, State = #state { status  = Status,
         false ->
             process_transitioner_response({shutdown, NewConfig}, State);
         true ->
-            Compatible = rabbit_clusterer_config:is_compatible(NewConfig,
-                                                               OldConfig),
-            Action = case {Status, Compatible} of
-                         {ready, true } -> noop;
-                         {ready, false} -> reboot;
-                         {_    , true } -> {transitioner, rejoin};
-                         {_    , false} -> {transitioner, join}
-                     end,
             NewConfig1 = rabbit_clusterer_config:transfer_node_ids(
                            OldConfig, NewConfig),
-            case Action of
-                noop ->
+            case rabbit_clusterer_config:is_compatible(NewConfig, OldConfig) of
+                true when Status =:= ready ->
                     ok = rabbit_clusterer_config:store_internal(
                            NodeID, NewConfig1),
                     error_logger:info_msg(
@@ -443,16 +435,15 @@ begin_transition(NewConfig, State = #state { status  = Status,
                       "configuration:~n~p~n",
                       [rabbit_clusterer_config:to_proplist(
                          NodeID, NewConfig1)]),
-                    update_monitoring(
-                      State #state { config = NewConfig1 });
-                reboot ->
+                    update_monitoring(State #state { config = NewConfig1 });
+                false when Status =:= ready ->
                     %% Must use the un-merged config here otherwise we
                     %% risk getting a different answer from
                     %% is_compatible when we come back here after
                     %% reboot.
                     begin_transition(
                       NewConfig, set_status(pending_shutdown, State));
-                {transitioner, TKind} ->
+                Compatible ->
                     ok = send_new_config(NewConfig1, Nodes),
                     %% Wipe out alive_mrefs and dead so that if we get
                     %% DOWN's we don't care about them.
@@ -460,11 +451,14 @@ begin_transition(NewConfig, State = #state { status  = Status,
                         fresh_comms(State #state { alive_mrefs = [],
                                                    dead        = [],
                                                    nodes       = [] }),
-                    State2 = set_status({transitioner, TKind}, State1),
+                    TKind = case Compatible of
+                                true  -> rejoin;
+                                false -> join
+                            end,
                     process_transitioner_response(
                       rabbit_clusterer_transitioner:init(
                         TKind, NodeID, NewConfig1, Comms),
-                      State2)
+                      set_status({transitioner, TKind}, State1))
             end
     end.
 
