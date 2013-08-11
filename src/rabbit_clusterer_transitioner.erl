@@ -365,14 +365,13 @@ collect_dependency_graph(RejoiningNodes, State = #state { comms = Comms }) ->
            RejoiningNodes, {{transitioner, rejoin}, request_awaiting}, Comms),
     {continue, State #state { status = awaiting_awaiting }}.
 
-maybe_rejoin(BadNodes, StatusDict,
-             State = #state { config = Config = #config { nodes = Nodes } }) ->
+maybe_rejoin(BadNodes, StatusDict, State = #state { config = Config }) ->
     %% Everyone who's here is on the same config as us. If anyone is
     %% running then we can just declare success and trust mnesia to
     %% join into them.
     MyNode = node(),
     SomeoneRunning = dict:is_key(ready, StatusDict),
-    IsRam = ram =:= orddict:fetch(MyNode, Nodes),
+    IsRam = ram =:= rabbit_clusterer_config:node_type(MyNode, Config),
     if
         SomeoneRunning ->
             %% Someone is running, so we should be able to cluster to
