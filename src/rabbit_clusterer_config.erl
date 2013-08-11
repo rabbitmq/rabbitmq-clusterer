@@ -313,11 +313,11 @@ tidy_node_ids(NodeID, Config = #config { nodes = Nodes, node_ids = NodeIDs }) ->
 
 %%----------------------------------------------------------------------------
 
-compare(ConfigA = #config { version = VA, nodes = NA },
-        ConfigB = #config { version = VB, nodes = NB }) ->
-    %% node order and node_ids are semantically irrevelant for comparison
-    case {ConfigA #config { nodes = lists:usort(NA), node_ids = undefined },
-          ConfigB #config { nodes = lists:usort(NB), node_ids = undefined }} of
+compare(ConfigA = #config { version = VA },
+        ConfigB = #config { version = VB }) ->
+    %% node_ids are semantically irrevelant for comparison
+    case {ConfigA #config { node_ids = undefined },
+          ConfigB #config { node_ids = undefined }} of
         {EQ, EQ}              -> coeval;
         _        when VA > VB -> younger;
         _        when VA < VB -> older;
