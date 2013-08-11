@@ -331,11 +331,12 @@ compare(ConfigA = #config { version = VA, nodes = NA },
 %% the new config is someone we thought we knew but who's been reset
 %% (so their node_id has changed) then we'll need to do a fresh sync
 %% to them.
-is_compatible(Config,                         Config) -> true;
-is_compatible(#config {},                  undefined) -> false;
-is_compatible(#config { gospel = reset }, _OldConfig) -> false;
-is_compatible(#config { node_ids = NodeIDsNew , gospel = {node, Node} },
-              #config { node_ids = NodeIDsOld } = ConfigOld ) ->
+is_compatible(Config,                                Config) -> true;
+is_compatible(#config {},                         undefined) -> false;
+is_compatible(#config { gospel = reset },        _ConfigOld) -> false;
+is_compatible(#config { gospel = {node, Node},
+                        node_ids = NodeIDsNew },
+              #config { node_ids = NodeIDsOld } = ConfigOld) ->
     case (contains_node(node(), ConfigOld) andalso
           contains_node(Node,   ConfigOld)) of
         true  -> case {orddict:find(Node, NodeIDsNew),
