@@ -17,7 +17,7 @@ external_path() -> application:get_env(rabbitmq_clusterer, config).
 
 load(undefined)      -> load_external();
 load(#config {} = C) -> case validate(C) of
-                            ok  -> C;
+                            ok  -> {ok, C};
                             Err -> Err
                         end;
 load(PathOrPropList) -> load_external(PathOrPropList).
@@ -25,7 +25,7 @@ load(PathOrPropList) -> load_external(PathOrPropList).
 load(NodeID, Config) ->
     choose_external_or_internal(
       case load_external() of
-          ExternalConfig = #config {} ->
+          {ok, ExternalConfig} ->
               ExternalConfig;
           {error, no_external_config_provided} ->
               undefined;
@@ -52,7 +52,7 @@ load_external(PathOrProplist) when is_list(PathOrProplist) ->
                     end,
     case ProplistOrErr of
         {ok, [Proplist]}   -> case from_proplist(Proplist) of
-                                  {ok, _NodeID, Config} -> Config;
+                                  {ok, _NodeID, Config} -> {ok, Config};
                                   {error, _} = Error    -> Error
                               end;
         {ok, Terms}        -> {error, rabbit_misc:format(

@@ -147,7 +147,7 @@ handle_call({apply_config, NewConfig}, From,
   when Status =:= ready orelse Status =:= pending_shutdown
        orelse ?IS_TRANSITIONER(Status) ->
     case {rabbit_clusterer_config:load(NewConfig), Status} of
-        {#config {} = NewConfig1, {transitioner, _}} ->
+        {{ok, NewConfig1}, {transitioner, _}} ->
             %% We have to defer to the transitioner here which means
             %% we can't give back as good feedback, but never
             %% mind. The transitioner will do the comparison for us
@@ -155,7 +155,7 @@ handle_call({apply_config, NewConfig}, From,
             gen_server:reply(From, transition_in_progress_ok),
             {noreply, transitioner_event(
                         {new_config, NewConfig1, undefined}, State)};
-        {#config {} = NewConfig1, _} ->
+        {{ok, NewConfig1}, _} ->
             case rabbit_clusterer_config:compare(NewConfig1, Config) of
                 older   -> {reply, {provided_config_is_older_than_current,
                                     NewConfig1, Config}, State};
