@@ -5,7 +5,7 @@
          stop_rabbit/0,
          start_rabbit_async/0,
          boot_rabbit_async/0,
-         wipe_mnesia/0,
+         make_mnesia_singleton/1,
          eliminate_mnesia_dependencies/1,
          configure_cluster/2]).
 
@@ -33,7 +33,7 @@ boot_rabbit_async() ->
     spawn(fun () -> ok = rabbit:boot() end),
     ok.
 
-wipe_mnesia() ->
+make_mnesia_singleton(true) ->
     %% With mnesia not running, we can't call
     %% rabbit_mnesia:force_reset() because that tries to read in the
     %% cluster status files from the mnesia directory which might not
@@ -43,7 +43,9 @@ wipe_mnesia() ->
     ok = rabbit_file:recursive_delete(
            filelib:wildcard(rabbit_mnesia:dir() ++ "/*")),
     ok = rabbit_node_monitor:reset_cluster_status(),
-    ok.
+    ok;
+make_mnesia_singleton(false) ->
+    eliminate_mnesia_dependencies([]).
 
 eliminate_mnesia_dependencies(NodesToDelete) ->
     ok = rabbit_mnesia:ensure_mnesia_dir(),

@@ -91,23 +91,17 @@
 %%----------------------------------------------------------------------------
 
 init(Kind, NodeID, Config, Comms) ->
-    MyNode = node(),
-    Gospel = rabbit_clusterer_config:gospel(Config),
-    case rabbit_clusterer_config:is_singelton(MyNode, Config) of
-        true when Kind =:= join andalso Gospel =:= reset ->
-            ok = rabbit_clusterer_utils:wipe_mnesia(),
-            {success, Config};
-        true ->
-            {node, MyNode} = Gospel, %% ASSERTION
-            ok = rabbit_clusterer_utils:eliminate_mnesia_dependencies([]),
-            {success, Config};
-        false ->
-            request_status(#state { kind     = Kind,
-                                    node_id  = NodeID,
-                                    config   = Config,
-                                    comms    = Comms,
-                                    awaiting = undefined,
-                                    joining  = [] })
+    case rabbit_clusterer_config:is_singelton(node(), Config) of
+        true  -> ok = rabbit_clusterer_utils:make_mnesia_singleton(
+                        Kind =:= join andalso
+                        rabbit_clusterer_config:gospel(Config) =:= reset),
+                 {success, Config};
+        false -> request_status(#state { kind     = Kind,
+                                         node_id  = NodeID,
+                                         config   = Config,
+                                         comms    = Comms,
+                                         awaiting = undefined,
+                                         joining  = [] })
     end.
 
 event({comms, {[], _BadNodes}}, State = #state { kind   = join,
@@ -316,7 +310,7 @@ maybe_join(BadNodes, StatusDict, State = #state { config = Config }) ->
     end.
 
 cluster_with_nodes(Config) ->
-    ok = rabbit_clusterer_utils:wipe_mnesia(),
+    ok = rabbit_clusterer_utils:make_mnesia_singleton(true),
     ok = rabbit_clusterer_utils:configure_cluster(
            rabbit_clusterer_config:nodenames(Config),
            rabbit_clusterer_config:node_type(node(), Config)).
@@ -337,19 +331,11 @@ maybe_form_new_cluster(Config) ->
             reset        -> {true, lists:min(rabbit_clusterer_config:disc_nodenames(Config))}
         end,
     case Leader of
-        MyNode ->
-            ok =
-                case Wipe of
-                    true ->
-                        rabbit_clusterer_utils:wipe_mnesia();
-                    false ->
-                        rabbit_clusterer_utils:eliminate_mnesia_dependencies([])
-                end,
-            ok = rabbit_clusterer_utils:configure_cluster(
-                   [MyNode], rabbit_clusterer_config:node_type(MyNode, Config)),
-            true;
-        _ ->
-            false
+        MyNode -> ok = rabbit_clusterer_utils:make_mnesia_singleton(Wipe),
+                  Type = rabbit_clusterer_config:node_type(MyNode, Config),
+                  ok = rabbit_clusterer_utils:configure_cluster([MyNode], Type),
+                  true;
+        _      -> false
     end.
 
 %%----------------------------------------------------------------------------
