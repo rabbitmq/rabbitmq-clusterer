@@ -5,7 +5,7 @@
 -export([load/2, load/1, store_internal/2, to_proplist/2,
          transfer_map/2, update_node_id/4, add_node_ids/3, add_node_id/4,
          compare/2, is_compatible/2,
-         contains_node/2, nodenames/1, disc_nodenames/1]).
+         contains_node/2, is_singelton/2, nodenames/1, disc_nodenames/1]).
 
 %%----------------------------------------------------------------------------
 
@@ -355,6 +355,9 @@ is_compatible(#config { gospel = {node, Node}, map_node_id = MapNodeIDNew },
 %%----------------------------------------------------------------------------
 
 contains_node(Node, #config { nodes = Nodes }) -> orddict:is_key(Node, Nodes).
+
+is_singelton( Node, #config { nodes = [{Node, disc}] }) -> true;
+is_singelton(_Node, _Config)                            -> false.
 
 nodenames(#config { nodes = Nodes }) -> orddict:fetch_keys(Nodes).
 

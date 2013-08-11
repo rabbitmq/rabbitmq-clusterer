@@ -92,18 +92,18 @@
 %% API
 %%----------------------------------------------------------------------------
 
-init(Kind, NodeID, Config = #config { nodes = Nodes }, Comms) ->
+init(Kind, NodeID, Config, Comms) ->
     MyNode = node(),
     Gospel = Config #config.gospel,
-    case Nodes of
-        [{MyNode, disc}] when Kind =:= join andalso Gospel =:= reset ->
+    case rabbit_clusterer_config:is_singelton(MyNode, Config) of
+        true when Kind =:= join andalso Gospel =:= reset ->
             ok = rabbit_clusterer_utils:wipe_mnesia(),
             {success, Config};
-        [{MyNode, disc}] ->
+        true ->
             {node, MyNode} = Gospel, %% ASSERTION
             ok = rabbit_clusterer_utils:eliminate_mnesia_dependencies([]),
             {success, Config};
-        [_|_] ->
+        false ->
             request_status(#state { kind     = Kind,
                                     node_id  = NodeID,
                                     config   = Config,
