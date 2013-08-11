@@ -350,7 +350,7 @@ maybe_form_new_cluster(Config) ->
                         rabbit_clusterer_utils:eliminate_mnesia_dependencies([])
                 end,
             ok = rabbit_clusterer_utils:configure_cluster(
-                   [MyNode], rabbit_clusterer_config:node_type(MyNode)),
+                   [MyNode], rabbit_clusterer_config:node_type(MyNode, Config)),
             true;
         _ ->
             false
