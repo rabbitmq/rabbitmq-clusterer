@@ -494,7 +494,7 @@ analyse_node_status(Config, {Node, {ConfigN, StatusN}},
                                   older   -> [Node | OlderN];
                                   _       -> OlderN
                               end,
-                 NodeIDN = orddict:fetch(Node, ConfigN #config.map_node_id),
+                 NodeIDN = rabbit_clusterer_config:node_id(Node, Config),
                  IDsN1 = [{Node, NodeIDN} | IDsN],
                  StatusesN1 = dict:append(StatusN, Node, StatusesN),
                  {YoungestN1, OlderN1, IDsN1, StatusesN1}
