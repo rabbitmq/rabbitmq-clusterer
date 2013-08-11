@@ -1,13 +1,17 @@
 -module(rabbit_clusterer_config).
 
--include("rabbit_clusterer.hrl").
-
 -export([load/2, load/1, store_internal/2, to_proplist/2,
          transfer_map/2, update_node_id/4, add_node_ids/3, add_node_id/4,
          compare/2, is_compatible/2,
          contains_node/2, is_singelton/2, nodenames/1, disc_nodenames/1,
          node_type/2, node_id/2, gospel/1, shutdown_timeout/1]).
 
+-record(config, { nodes,
+                  version,
+                  gospel,
+                  shutdown_timeout,
+                  map_node_id
+                }).
 %%----------------------------------------------------------------------------
 
 %% We can't put the file within mnesia dir because that upsets the

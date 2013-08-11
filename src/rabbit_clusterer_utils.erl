@@ -1,7 +1,5 @@
 -module(rabbit_clusterer_utils).
 
--include("rabbit_clusterer.hrl").
-
 -export([stop_mnesia/0,
          ensure_start_mnesia/0,
          stop_rabbit/0,

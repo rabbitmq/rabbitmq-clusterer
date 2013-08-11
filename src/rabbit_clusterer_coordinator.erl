@@ -29,8 +29,6 @@
                  booted
                }).
 
--include("rabbit_clusterer.hrl").
-
 start_link() -> gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 begin_coordination() -> ok = gen_server:cast(?SERVER, begin_coordination).

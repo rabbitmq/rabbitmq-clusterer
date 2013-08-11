@@ -4,8 +4,6 @@
 
 -record(state, { kind, status, node_id, config, comms, awaiting, joining }).
 
--include("rabbit_clusterer.hrl").
-
 %% Concerns for join: TODO explain
 %%
 %%
