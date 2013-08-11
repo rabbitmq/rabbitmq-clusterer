@@ -6,8 +6,8 @@
          contains_node/2, is_singelton/2, nodenames/1, disc_nodenames/1,
          node_type/2, node_id/2, gospel/1, shutdown_timeout/1]).
 
--record(config, { nodes,
-                  version,
+-record(config, { version,
+                  nodes,
                   gospel,
                   shutdown_timeout,
                   node_ids
@@ -112,8 +112,8 @@ default_config() ->
     NodeID = create_node_id(),
     MyNode = node(),
     from_proplist(
-      [{nodes,            [{MyNode, disc}]},
-       {version,          0},
+      [{version,          0},
+       {nodes,            [{MyNode, disc}]},
        {gospel,           {node, MyNode}},
        {shutdown_timeout, infinity},
        {node_id,          NodeID},
@@ -131,7 +131,7 @@ create_node_id() ->
 
 %%----------------------------------------------------------------------------
 
-required_keys() -> [nodes, version, gospel, shutdown_timeout].
+required_keys() -> [version, nodes, gospel, shutdown_timeout].
 
 optional_keys() -> [{node_ids, orddict:new()}].
 
@@ -199,30 +199,6 @@ validate_key(version, Version, _Config)
 validate_key(version, Version, _Config) ->
     {error, rabbit_misc:format("Require version to be non-negative integer: ~p",
                                [Version])};
-validate_key(gospel, reset, _Config) ->
-    ok;
-validate_key(gospel, {node, Node}, Config = #config { nodes = Nodes }) ->
-    case [true || N <- Nodes,
-                  Node =:= N orelse
-                  {Node, disc} =:= N orelse
-                  {Node, disk} =:= N] of
-        []    -> {error, rabbit_misc:format(
-                           "Node in gospel (~p) is not in nodes (~p)",
-                           [Node, Config #config.nodes])};
-        [_|_] -> ok
-    end;
-validate_key(gospel, Gospel, _Config) ->
-    {error, rabbit_misc:format("Invalid gospel setting: ~p", [Gospel])};
-validate_key(shutdown_timeout, infinity, _Config) ->
-    ok;
-validate_key(shutdown_timeout, Timeout, _Config)
-  when is_integer(Timeout) andalso Timeout >= 0 ->
-    ok;
-validate_key(shutdown_timeout, Timeout, _Config) ->
-    {error,
-     rabbit_misc:format(
-       "Require shutdown_timeout to be 'infinity' or non-negative integer: ~p",
-       [Timeout])};
 validate_key(nodes, Nodes, _Config) when is_list(Nodes) ->
     {Result, Disc, NodeNames} =
         lists:foldr(
@@ -255,6 +231,30 @@ validate_key(nodes, Nodes, _Config) when is_list(Nodes) ->
 validate_key(nodes, Nodes, _Config) ->
     {error,
      rabbit_misc:format("Require nodes to be a list of nodes: ~p", [Nodes])};
+validate_key(gospel, reset, _Config) ->
+    ok;
+validate_key(gospel, {node, Node}, Config = #config { nodes = Nodes }) ->
+    case [true || N <- Nodes,
+                  Node =:= N orelse
+                  {Node, disc} =:= N orelse
+                  {Node, disk} =:= N] of
+        []    -> {error, rabbit_misc:format(
+                           "Node in gospel (~p) is not in nodes (~p)",
+                           [Node, Config #config.nodes])};
+        [_|_] -> ok
+    end;
+validate_key(gospel, Gospel, _Config) ->
+    {error, rabbit_misc:format("Invalid gospel setting: ~p", [Gospel])};
+validate_key(shutdown_timeout, infinity, _Config) ->
+    ok;
+validate_key(shutdown_timeout, Timeout, _Config)
+  when is_integer(Timeout) andalso Timeout >= 0 ->
+    ok;
+validate_key(shutdown_timeout, Timeout, _Config) ->
+    {error,
+     rabbit_misc:format(
+       "Require shutdown_timeout to be 'infinity' or non-negative integer: ~p",
+       [Timeout])};
 validate_key(node_ids, Orddict, _Config) when is_list(Orddict) ->
     ok;
 validate_key(node_ids, Orddict, _Config) ->
