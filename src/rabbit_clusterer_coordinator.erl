@@ -222,7 +222,7 @@ handle_cast({new_config, ConfigRemote, Node},
     %% In booting, it's not safe to reconfigure our own rabbit, and
     %% given the transitioning state of mnesia during rabbit boot we
     %% don't want anyone else to interfere either, so again, we just
-    %% wait. But we do update our config node-id map if the
+    %% wait. But we do update our config node_id map if the
     %% ConfigRemote is coeval with our own.
     case rabbit_clusterer_config:compare(ConfigRemote, Config) of
         coeval -> Config1 = rabbit_clusterer_config:update_node_id(
@@ -432,8 +432,8 @@ begin_transition(NewConfig, State = #state { status  = Status,
                          {_    , true } -> {transitioner, rejoin};
                          {_    , false} -> {transitioner, join}
                      end,
-            NewConfig1 = rabbit_clusterer_config:transfer_map(OldConfig,
-                                                              NewConfig),
+            NewConfig1 = rabbit_clusterer_config:transfer_node_ids(
+                           OldConfig, NewConfig),
             case Action of
                 noop ->
                     ok = rabbit_clusterer_config:store_internal(

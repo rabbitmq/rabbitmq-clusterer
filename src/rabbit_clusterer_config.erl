@@ -1,7 +1,7 @@
 -module(rabbit_clusterer_config).
 
 -export([load/2, load/1, store_internal/2, to_proplist/2,
-         transfer_map/2, update_node_id/4, add_node_ids/3, add_node_id/4,
+         transfer_node_ids/2, update_node_id/4, add_node_ids/3, add_node_id/4,
          compare/2, is_compatible/2,
          contains_node/2, is_singelton/2, nodenames/1, disc_nodenames/1,
          node_type/2, node_id/2, gospel/1, shutdown_timeout/1]).
@@ -10,7 +10,7 @@
                   version,
                   gospel,
                   shutdown_timeout,
-                  map_node_id
+                  node_ids
                 }).
 %%----------------------------------------------------------------------------
 
@@ -92,7 +92,7 @@ choose_external_or_internal(NewConfig, undefined) ->
     %% We only have an external config and no internal config, so we
     %% have no NodeID, so we must generate one.
     NodeID = create_node_id(),
-    {NodeID, tidy_node_id_maps(NodeID, NewConfig), undefined};
+    {NodeID, tidy_node_ids(NodeID, NewConfig), undefined};
 choose_external_or_internal(undefined, {NodeID, OldConfig}) ->
     {NodeID, OldConfig, OldConfig};
 choose_external_or_internal(NewConfig, {NodeID, OldConfig}) ->
@@ -117,7 +117,7 @@ default_config() ->
        {gospel,           {node, MyNode}},
        {shutdown_timeout, infinity},
        {node_id,          NodeID},
-       {map_node_id,      orddict:from_list([{MyNode, NodeID}])}
+       {node_ids,         orddict:from_list([{MyNode, NodeID}])}
       ]).
 
 create_node_id() ->
@@ -133,7 +133,7 @@ create_node_id() ->
 
 required_keys() -> [nodes, version, gospel, shutdown_timeout].
 
-optional_keys() -> [{map_node_id, orddict:new()}].
+optional_keys() -> [{node_ids, orddict:new()}].
 
 field_fold(Fun, Init) ->
     {_Pos, Res} = lists:foldl(fun (FieldName, {Pos, Acc}) ->
@@ -255,11 +255,11 @@ validate_key(nodes, Nodes, _Config) when is_list(Nodes) ->
 validate_key(nodes, Nodes, _Config) ->
     {error,
      rabbit_misc:format("Require nodes to be a list of nodes: ~p", [Nodes])};
-validate_key(map_node_id, Orddict, _Config) when is_list(Orddict) ->
+validate_key(node_ids, Orddict, _Config) when is_list(Orddict) ->
     ok;
-validate_key(map_node_id, Orddict, _Config) ->
+validate_key(node_ids, Orddict, _Config) ->
     {error,
-     rabbit_misc:format("Requires map_node_id to be an orddict: ~p", [Orddict])}.
+     rabbit_misc:format("Requires node_ids to be an orddict: ~p", [Orddict])}.
 
 normalise_nodes(Nodes) when is_list(Nodes) ->
     orddict:from_list(
@@ -272,53 +272,49 @@ normalise_nodes(Nodes) when is_list(Nodes) ->
 
 %%----------------------------------------------------------------------------
 
-transfer_map(undefined, Dest) ->
+transfer_node_ids(undefined, Dest) ->
     Dest;
-transfer_map(#config { map_node_id = Map }, Dest = #config { }) ->
-    Dest #config { map_node_id = Map }.
+transfer_node_ids(#config { node_ids = NodeIDs }, Dest = #config { }) ->
+    Dest #config { node_ids = NodeIDs }.
 
-update_node_id(Node, #config { map_node_id = NodeToIDRemote },
-               NodeID, Config = #config { map_node_id = NodeToIDLocal }) ->
-    NodeToIDLocal1 = orddict:store(Node, orddict:fetch(Node, NodeToIDRemote),
-                                   NodeToIDLocal),
-    tidy_node_id_maps(NodeID,
-                      Config #config { map_node_id = NodeToIDLocal1 }).
+update_node_id(Node, #config { node_ids = NodeIDsRemote },
+               NodeID, Config = #config { node_ids = NodeIDsLocal }) ->
+    NodeIDsLocal1 = orddict:store(Node, orddict:fetch(Node, NodeIDsRemote),
+                                  NodeIDsLocal),
+    tidy_node_ids(NodeID, Config #config { node_ids = NodeIDsLocal1 }).
 
-add_node_ids(NodeIDs, NodeID, Config = #config { map_node_id = NodeToID }) ->
-    NodeToID1 = orddict:merge(fun (_Node, _A, B) -> B end,
-                              NodeToID, orddict:from_list(NodeIDs)),
-    tidy_node_id_maps(NodeID, Config #config { map_node_id = NodeToID1 }).
+add_node_ids(ExtraNodeIDs, NodeID, Config = #config { node_ids = NodeIDs }) ->
+    NodeIDs1 = orddict:merge(fun (_Node, _A, B) -> B end,
+                             NodeIDs, orddict:from_list(ExtraNodeIDs)),
+    tidy_node_ids(NodeID, Config #config { node_ids = NodeIDs1 }).
 
 add_node_id(NewNode, NewNodeID, NodeID,
-            Config = #config { map_node_id = NodeToID }) ->
-    %% Note that if NewNode isn't in Config then tidy_node_id_maps
-    %% will do the right thing, and also that Changed will always be
-    %% false.
-    Changed = case orddict:find(NewNode, NodeToID) of
+            Config = #config { node_ids = NodeIDs }) ->
+    %% Note that if NewNode isn't in Config then tidy_node_ids will do
+    %% the right thing, and also that Changed will always be false.
+    Changed = case orddict:find(NewNode, NodeIDs) of
                   error            -> false;
                   {ok, NewNodeID}  -> false;
                   {ok, _NewNodeID} -> true
               end,
-    NodeToID1 = orddict:store(NewNode, NewNodeID, NodeToID),
-    {Changed, tidy_node_id_maps(NodeID,
-                                Config #config { map_node_id = NodeToID1 })}.
+    NodeIDs1 = orddict:store(NewNode, NewNodeID, NodeIDs),
+    {Changed, tidy_node_ids(NodeID, Config #config { node_ids = NodeIDs1 })}.
 
-tidy_node_id_maps(NodeID, Config = #config { nodes = Nodes,
-                                             map_node_id = NodeToID }) ->
+tidy_node_ids(NodeID, Config = #config { nodes = Nodes, node_ids = NodeIDs }) ->
     MyNode = node(),
-    NodeToID1 = orddict:filter(fun (N, _ID) -> orddict:is_key(N, Nodes) end,
-                               NodeToID),
+    NodeIDs1 = orddict:filter(fun (N, _ID) -> orddict:is_key(N, Nodes) end,
+                              NodeIDs),
     %% our own node_id may have changed or be missing.
-    NodeToID2 = case orddict:is_key(MyNode, Nodes) of
-                    true  -> orddict:store(MyNode, NodeID, NodeToID1);
-                    false -> NodeToID1
-                end,
-    Config #config { map_node_id = NodeToID2 }.
+    NodeIDs2 = case orddict:is_key(MyNode, Nodes) of
+                   true  -> orddict:store(MyNode, NodeID, NodeIDs1);
+                   false -> NodeIDs1
+               end,
+    Config #config { node_ids = NodeIDs2 }.
 
 %%----------------------------------------------------------------------------
 
-%% We very deliberately completely ignore the map_* fields here. They
-%% are not semantically important from the POV of config equivalence.
+%% We very deliberately completely ignore the node_ids field here. It is
+%% not semantically important from the POV of config equivalence.
 compare(#config { version = V, gospel = GA, nodes = NA, shutdown_timeout = TA },
         #config { version = V, gospel = GB, nodes = NB, shutdown_timeout = TB }) ->
     case {{GA, lists:usort(NA), TA}, {GB, lists:usort(NB), TB}} of
@@ -339,18 +335,15 @@ compare(#config { version = VA },
 %% the new config is someone we thought we knew but who's been reset
 %% (so their node_id has changed) then we'll need to do a fresh sync
 %% to them.
-is_compatible(Config, Config) ->
-    true;
-is_compatible(#config { gospel = reset }, _OldConfig) ->
-    false;
-is_compatible(#config {}, undefined) ->
-    false;
-is_compatible(#config { gospel = {node, Node}, map_node_id = MapNodeIDNew },
-              ConfigOld = #config { map_node_id = MapNodeIDOld }) ->
+is_compatible(Config,                         Config) -> true;
+is_compatible(#config {},                  undefined) -> false;
+is_compatible(#config { gospel = reset }, _OldConfig) -> false;
+is_compatible(#config { node_ids = NodeIDsNew , gospel = {node, Node} },
+              #config { node_ids = NodeIDsOld } = ConfigOld ) ->
     case (contains_node(node(), ConfigOld) andalso
           contains_node(Node,   ConfigOld)) of
-        true  -> case {orddict:find(Node, MapNodeIDNew),
-                       orddict:find(Node, MapNodeIDOld)} of
+        true  -> case {orddict:find(Node, NodeIDsNew),
+                       orddict:find(Node, NodeIDsOld)} of
                      {{ok, IdA}, {ok, IdB}} when IdA =/= IdB -> false;
                      {_        , _        }                  -> true
                  end;
@@ -371,7 +364,7 @@ disc_nodenames(#config { nodes = Nodes }) ->
 
 node_type(Node, #config { nodes = Nodes }) -> orddict:fetch(Node, Nodes).
 
-node_id(Node, #config { map_node_id = Map }) -> orddict:fetch(Node, Map).
+node_id(Node, #config { node_ids = NodeIDs }) -> orddict:fetch(Node, NodeIDs).
 
 gospel(#config { gospel = Gospel }) -> Gospel.
 

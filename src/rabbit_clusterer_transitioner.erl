@@ -119,7 +119,7 @@ event({comms, {Replies, BadNodes}}, State = #state { kind    = Kind,
                 coeval when OlderThanUs =:= [] ->
                     %% We have the most up to date config. But we must
                     %% use Youngest from here on as it has the updated
-                    %% node_id_maps.
+                    %% node_ids map.
                     (case Kind of
                          join   -> fun maybe_join/3;
                          rejoin -> fun maybe_rejoin/3
@@ -439,7 +439,7 @@ update_remote_nodes(Nodes, Config, State = #state { comms = Comms }) ->
 %% plus the local node's id and config.
 %%
 %% Returns a tuple containing
-%% 1) the youngest config of all, with an enriched map_node_id
+%% 1) the youngest config of all, with an enriched node_ids map
 %% 2) a list of nodes operating with configs older than the local node's
 %% 3) a dict mapping status to lists of nodes
 analyse_node_statuses(NodeConfigStatusList, NodeID, Config) ->
@@ -451,8 +451,8 @@ analyse_node_statuses(NodeConfigStatusList, NodeID, Config) ->
         {Youngest, Older, IDs, Status} ->
             %% We want to make sure anything that we had in Config
             %% that does not exist in IDs is still maintained.
-            YoungestOrigMap = rabbit_clusterer_config:transfer_map(Config,
-                                                                   Youngest),
+            YoungestOrigMap = rabbit_clusterer_config:transfer_node_ids(
+                                Config, Youngest),
             {rabbit_clusterer_config:add_node_ids(IDs, NodeID, YoungestOrigMap),
              Older, Status}
     end.
