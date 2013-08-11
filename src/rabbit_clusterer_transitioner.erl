@@ -464,20 +464,20 @@ analyse_node_status(_Config, {Node, preboot},
     {YoungestN, OlderN, IDsN, dict:append(preboot, Node, StatusesN)};
 analyse_node_status(Config, {Node, {ConfigN, StatusN}},
                     {YoungestN, OlderN, IDsN, StatusesN}) ->
-    VsYoungest = rabbit_clusterer_config:compare(ConfigN, YoungestN),
-    VsConfig   = rabbit_clusterer_config:compare(ConfigN, Config),
-    case VsYoungest =:= invalid orelse VsConfig =:= invalid of
-        true  -> invalid;
-        false -> YoungestN1 = case VsYoungest of
-                                  younger -> ConfigN;
-                                  _       -> YoungestN
-                              end,
-                 OlderN1    = case VsConfig   of
-                                  older   -> [Node | OlderN];
-                                  _       -> OlderN
-                              end,
-                 NodeIDN = rabbit_clusterer_config:node_id(Node, Config),
-                 IDsN1 = [{Node, NodeIDN} | IDsN],
-                 StatusesN1 = dict:append(StatusN, Node, StatusesN),
-                 {YoungestN1, OlderN1, IDsN1, StatusesN1}
+    case {rabbit_clusterer_config:compare(ConfigN, YoungestN),
+          rabbit_clusterer_config:compare(ConfigN, Config)} of
+        {invalid, _}           -> invalid;
+        {_, invalid}           -> invalid;
+        {VsYoungest, VsConfig} -> {case VsYoungest of
+                                       younger -> ConfigN;
+                                       _       -> YoungestN
+                                   end,
+                                   case VsConfig   of
+                                       older   -> [Node | OlderN];
+                                       _       -> OlderN
+                                   end,
+                                   [{Node, rabbit_clusterer_config:node_id(
+                                             Node, Config)} |
+                                    IDsN],
+                                   dict:append(StatusN, Node, StatusesN)}
     end.
