@@ -317,11 +317,13 @@ maybe_join(BadNodes, StatusDict, State = #state { config = Config }) ->
             delayed_request_status(State)
     end.
 
-cluster_with_nodes(#config { nodes = Nodes }) ->
+cluster_with_nodes(Config) ->
     ok = rabbit_clusterer_utils:wipe_mnesia(),
-    ok = rabbit_clusterer_utils:configure_cluster(Nodes).
+    ok = rabbit_clusterer_utils:configure_cluster(
+           rabbit_clusterer_config:nodenames(Config),
+           rabbit_clusterer_config:node_type(node(), Config)).
 
-maybe_form_new_cluster(Config = #config { nodes = Nodes, gospel = Gospel }) ->
+maybe_form_new_cluster(Config) ->
     %% Is it necessary to limit the election of a leader to disc
     %% nodes? No: we're only here when we have everyone in the cluster
     %% joining, so we know we wouldn't be creating a RAM-node-only
@@ -332,7 +334,7 @@ maybe_form_new_cluster(Config = #config { nodes = Nodes, gospel = Gospel }) ->
     %% filter. This might get reviewed in QA.
     MyNode = node(),
     {Wipe, Leader} =
-        case Gospel of
+        case Config #config.gospel of
             {node, Node} ->
                 {Node =/= MyNode, Node};
             reset ->
@@ -348,7 +350,7 @@ maybe_form_new_cluster(Config = #config { nodes = Nodes, gospel = Gospel }) ->
                         rabbit_clusterer_utils:eliminate_mnesia_dependencies([])
                 end,
             ok = rabbit_clusterer_utils:configure_cluster(
-                   [{MyNode, orddict:fetch(MyNode, Nodes)}]),
+                   [MyNode], rabbit_clusterer_config:node_type(MyNode)),
             true;
         _ ->
             false

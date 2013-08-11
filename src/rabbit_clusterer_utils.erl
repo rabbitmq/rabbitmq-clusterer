@@ -9,7 +9,7 @@
          boot_rabbit_async/0,
          wipe_mnesia/0,
          eliminate_mnesia_dependencies/1,
-         configure_cluster/1]).
+         configure_cluster/2]).
 
 %%----------------------------------------------------------------------------
 
@@ -65,11 +65,9 @@ eliminate_mnesia_dependencies(NodesToDelete) ->
     ok = rabbit_node_monitor:reset_cluster_status(),
     ok.
 
-configure_cluster(NodeDict) ->
+configure_cluster(Nodes, MyNodeType) ->
     case application:load(rabbit) of
         ok                                -> ok;
         {error, {already_loaded, rabbit}} -> ok
     end,
-    NodeNames = orddict:fetch_keys(NodeDict),
-    Mode = orddict:fetch(node(), NodeDict),
-    ok = application:set_env(rabbit, cluster_nodes, {NodeNames, Mode}).
+    ok = application:set_env(rabbit, cluster_nodes, {Nodes, MyNodeType}).
