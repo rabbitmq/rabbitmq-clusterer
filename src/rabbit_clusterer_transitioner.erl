@@ -94,7 +94,7 @@
 
 init(Kind, NodeID, Config, Comms) ->
     MyNode = node(),
-    Gospel = Config #config.gospel,
+    Gospel = rabbit_clusterer_config:gospel(Config),
     case rabbit_clusterer_config:is_singelton(MyNode, Config) of
         true when Kind =:= join andalso Gospel =:= reset ->
             ok = rabbit_clusterer_utils:wipe_mnesia(),
@@ -334,11 +334,9 @@ maybe_form_new_cluster(Config) ->
     %% filter. This might get reviewed in QA.
     MyNode = node(),
     {Wipe, Leader} =
-        case Config #config.gospel of
-            {node, Node} ->
-                {Node =/= MyNode, Node};
-            reset ->
-                {true, lists:min(rabbit_clusterer_config:disc_nodenames(Config))}
+        case rabbit_clusterer_config:gospel(Config) of
+            {node, Node} -> {Node =/= MyNode, Node};
+            reset        -> {true, lists:min(rabbit_clusterer_config:disc_nodenames(Config))}
         end,
     case Leader of
         MyNode ->
