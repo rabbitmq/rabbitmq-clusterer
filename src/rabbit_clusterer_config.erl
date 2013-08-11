@@ -6,7 +6,7 @@
          transfer_map/2, update_node_id/4, add_node_ids/3, add_node_id/4,
          compare/2, is_compatible/2,
          contains_node/2, is_singelton/2, nodenames/1, disc_nodenames/1,
-         node_type/2, node_id/2, gospel/1]).
+         node_type/2, node_id/2, gospel/1, shutdown_timeout/1]).
 
 %%----------------------------------------------------------------------------
 
@@ -370,3 +370,5 @@ node_type(Node, #config { nodes = Nodes }) -> orddict:fetch(Node, Nodes).
 node_id(Node, #config { map_node_id = Map }) -> orddict:fetch(Node, Map).
 
 gospel(#config { gospel = Gospel }) -> Gospel.
+
+shutdown_timeout(#config { shutdown_timeout = Timeout }) -> Timeout.

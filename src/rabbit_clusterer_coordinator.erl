@@ -523,24 +523,22 @@ stop_comms(State = #state { comms = Token }) ->
     ok = rabbit_clusterer_comms:stop(Token),
     State #state { comms = undefined }.
 
-schedule_shutdown(State = #state {
-                    status = pending_shutdown,
-                    config = #config { shutdown_timeout = infinity } }) ->
-    State #state { transitioner_state = undefined };
-schedule_shutdown(State = #state {
-                    status = pending_shutdown,
-                    config = #config { shutdown_timeout = Timeout } }) ->
-    Ref = make_ref(),
-    erlang:send_after(Timeout*1000, self(), {shutdown, Ref}),
-    State #state { transitioner_state = {shutdown, Ref} };
+schedule_shutdown(State = #state { status = pending_shutdown,
+                                   config = Config }) ->
+    case rabbit_clusterer_config:shutdown_timeout(Config) of
+        infinity -> State #state { transitioner_state = undefined };
+        Timeout  -> Ref = make_ref(),
+                    erlang:send_after(Timeout*1000, self(), {shutdown, Ref}),
+                    State #state { transitioner_state = {shutdown, Ref} }
+    end;
 schedule_shutdown(State) ->
     State.
 
-reschedule_shutdown(
-  State = #state { status = pending_shutdown,
-                   transitioner_state = {shutdown, _Ref},
-                   config = #config { shutdown_timeout = Timeout } }) ->
-    true = Timeout =/= infinity, %% ASSERTION
+reschedule_shutdown(State = #state { status             = pending_shutdown,
+                                     transitioner_state = {shutdown, _Ref},
+                                     config             = Config }) ->
+    %% ASSERTION
+    true = rabbit_clusterer_config:shutdown_timeout(Config) =/= infinity,
     schedule_shutdown(State);
 reschedule_shutdown(State) ->
     State.
