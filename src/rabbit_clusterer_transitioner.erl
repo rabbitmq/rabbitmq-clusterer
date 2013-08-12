@@ -91,7 +91,7 @@
 %%----------------------------------------------------------------------------
 
 init(Kind, NodeID, Config, Comms) ->
-    case rabbit_clusterer_config:is_singelton(node(), Config) of
+    case rabbit_clusterer_config:is_singleton(node(), Config) of
         true  -> ok = rabbit_clusterer_utils:make_mnesia_singleton(
                         Kind =:= join andalso
                         rabbit_clusterer_config:gospel(Config) =:= reset),
