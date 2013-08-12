@@ -237,7 +237,8 @@ validate_key(gospel, {node, Node}, Config = #config { nodes = Nodes }) ->
     case [true || N <- Nodes,
                   (N =:= {Node, disc} orelse
                    N =:= {Node, disk} orelse
-                   N =:= Node)] of
+                   N =:= Node orelse
+                   N =:= {Node, ram})] of
         []    -> {error, rabbit_misc:format(
                            "Node in gospel (~p) is not in nodes (~p)",
                            [Node, Config #config.nodes])};
