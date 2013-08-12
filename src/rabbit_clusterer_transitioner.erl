@@ -104,9 +104,6 @@ init(Kind, NodeID, Config, Comms) ->
                                          joining  = [] })
     end.
 
-event({comms, {[], _BadNodes}}, State = #state { kind   = join,
-                                                 status = awaiting_status }) ->
-    delayed_request_status(State);
 event({comms, {Replies, BadNodes}}, State = #state { kind    = Kind,
                                                      status  = awaiting_status,
                                                      node_id = NodeID,
