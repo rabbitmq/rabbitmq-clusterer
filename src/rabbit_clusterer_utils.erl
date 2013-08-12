@@ -46,7 +46,7 @@ make_mnesia_singleton(true) ->
     ok = ensure_start_mnesia(),
     ok;
 make_mnesia_singleton(false) ->
-    eliminate_mnesia_dependencies([]).
+    eliminate_mnesia_dependencies(everyone_else).
 
 eliminate_mnesia_dependencies(NodesToDelete) ->
     ok = rabbit_mnesia:ensure_mnesia_dir(),
@@ -62,7 +62,12 @@ eliminate_mnesia_dependencies(NodesToDelete) ->
     end,
     %% del_table_copy has to be done after the force_load but is also
     %% usefully idempotent.
-    [{atomic,ok} = mnesia:del_table_copy(schema, N) || N <- NodesToDelete],
+    NodesToDelete1 =
+        case NodesToDelete of
+            everyone_else -> mnesia:system_info(db_nodes) -- [node()];
+            _             -> NodesToDelete
+        end,
+    [{atomic,ok} = mnesia:del_table_copy(schema, N) || N <- NodesToDelete1],
     ok = rabbit_node_monitor:reset_cluster_status(),
     ok.
 
