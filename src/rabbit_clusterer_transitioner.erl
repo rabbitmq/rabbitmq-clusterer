@@ -477,7 +477,6 @@ analyse_node_status(Config, {Node, {ConfigN, StatusN}},
                                        _       -> OlderN
                                    end,
                                    [{Node, rabbit_clusterer_config:node_id(
-                                             Node, ConfigN)} |
-                                    IDsN],
+                                             Node, ConfigN)} | IDsN],
                                    dict:append(StatusN, Node, StatusesN)}
     end.
