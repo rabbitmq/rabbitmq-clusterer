@@ -43,6 +43,7 @@ make_mnesia_singleton(true) ->
     ok = rabbit_file:recursive_delete(
            filelib:wildcard(rabbit_mnesia:dir() ++ "/*")),
     ok = rabbit_node_monitor:reset_cluster_status(),
+    ok = ensure_start_mnesia(),
     ok;
 make_mnesia_singleton(false) ->
     eliminate_mnesia_dependencies([]).
