@@ -1,5 +1,5 @@
 DEPS:=rabbitmq-server
-STANDALONE_TEST_COMMANDS:=test:test()
+WITH_BROKER_TEST_COMMANDS:=clusterer_test:test()
 
 define package_rules
 
