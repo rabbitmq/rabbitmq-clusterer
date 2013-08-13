@@ -371,7 +371,6 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 %% pending_shutdown  -> pending_shutdown
 %% pending_shutdown  -> a transitioner
 %% booting           -> ready
-%% booting           -> pending_shutdown
 %% ready             -> pending_shutdown
 
 set_status(NewStatus, State = #state { status = Status })
