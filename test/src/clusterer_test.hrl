@@ -18,5 +18,5 @@
 
 -record(step, { modify_node_instrs,
                 modify_config_instr,
-                create_node_instr,
+                existential_node_instr,
                 final_state }).

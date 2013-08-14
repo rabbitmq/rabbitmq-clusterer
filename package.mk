@@ -1,4 +1,5 @@
 DEPS:=rabbitmq-server
+# we use WITH_BROKER in order to easily get a distributed node.
 WITH_BROKER_TEST_COMMANDS:=clusterer_test:test()
 
 define package_rules

@@ -21,7 +21,7 @@ generate_step(Test) ->
     %% new node.
     Step = #step { modify_node_instrs = [],
                    modify_config_instr = noop,
-                   create_node_instr = noop,
+                   existential_node_instr = noop,
                    final_state = Test },
     Step1 = step_if_seed(fun generate_modify_node_instructions/1, Step),
     Step2 = step_if_seed(fun generate_modify_config_instructions/1, Step1),
@@ -87,7 +87,7 @@ generate_existential_node_instructions(
              end]), Test),
     step_if_seed(fun (Step1 = #step { final_state = Test2 }) ->
                          {CreateNodeInstr, Test3} = InstrFun(Test2),
-                         Step1 #step { create_node_instr = CreateNodeInstr,
+                         Step1 #step { existential_node_instr = CreateNodeInstr,
                                        final_state       = Test3 }
                  end, Step #step { final_state = Test1 }).
 
@@ -109,18 +109,21 @@ modify_node_instructions(#node { name = Name, state = off },
          true  -> [fun start_node_instr/2];
          false -> []
      end,
-     case contains_node(Name, VConfig) andalso AConfig =/= VConfig of
+     case clusterer_utils:contains_node(Name, VConfig) andalso
+          AConfig =/= VConfig of
          true  -> [fun start_node_with_config_instr/2];
          false -> []
      end];
 modify_node_instructions(#node { name = Name, state = reset },
                          Test = #test { valid_config  = VConfig,
                                         active_config = AConfig }) ->
-    [case contains_node(Name, VConfig) andalso AConfig =/= VConfig of
+    [case clusterer_utils:contains_node(Name, VConfig) andalso
+          AConfig =/= VConfig of
          true  -> [fun start_node_with_config_instr/2];
          false -> []
      end,
-     case is_config_active(Test) andalso contains_node(Name, AConfig) of
+     case is_config_active(Test) andalso
+          clusterer_utils:contains_node(Name, AConfig) of
          true  -> [fun start_node_instr/2];
          false -> []
      end];
@@ -139,7 +142,7 @@ modify_node_instructions(#node { name = Name, state = {pending_shutdown, _} },
     %% pending_shutdown and VConfig contains Node then VConfig =/=
     %% AConfig.
     [fun stop_node_instr/2,
-     case contains_node(Name, VConfig) of
+     case clusterer_utils:contains_node(Name, VConfig) of
          true  -> [fun apply_config_instr/2];
          false -> []
      end].
@@ -151,12 +154,14 @@ change_shutdown_timeout_instr(
     Values = [infinity, 0, 1, 2, 10, 30],
     {Value, Test1} = choose_one([V || V <- Values, V =/= ST], Test),
     Config1 = Config #config { shutdown_timeout = Value },
-    {{config_shutdown_timeout_to, Value}, set_config(Config1, Test1)}.
+    {{config_shutdown_timeout_to, Value},
+     clusterer_utils:set_config(Config1, Test1)}.
 
 update_version_instr(
   Test = #test { config = Config = #config { version = V } }) ->
     Config1 = Config #config { version = V + 1 },
-    {{config_version_to, V + 1}, set_config(Config1, Test)}.
+    {{config_version_to, V + 1},
+     clusterer_utils:set_config(Config1, Test)}.
 
 change_gospel_instr(
   Test = #test { config = Config = #config { nodes  = Nodes,
@@ -164,7 +169,8 @@ change_gospel_instr(
     Values = [reset | [{node, N} || N <- orddict:fetch_keys(Nodes)]],
     {Value, Test1} = choose_one([V || V <- Values, V =/= Gospel], Test),
     Config1 = Config #config { gospel = Value },
-    {{config_gospel_to, Value}, set_config(Config1, Test1)}.
+    {{config_gospel_to, Value},
+     clusterer_utils:set_config(Config1, Test1)}.
 
 add_node_to_config_instr(Test = #test { config = Config =
                                             #config { nodes = ConfigNodes },
@@ -174,7 +180,8 @@ add_node_to_config_instr(Test = #test { config = Config =
     {Value, Test1} = choose_one(Values, Test),
     Config1 =
         Config #config { nodes = orddict:store(Value, disc, ConfigNodes) },
-    {{config_add_node, Value}, set_config(Config1, Test1)}.
+    {{config_add_node, Value},
+     clusterer_utils:set_config(Config1, Test1)}.
 
 remove_node_from_config_instr(
   Test = #test { config = Config = #config { nodes  = Nodes,
@@ -182,7 +189,8 @@ remove_node_from_config_instr(
     Values = [N || N <- orddict:fetch_keys(Nodes), {node, N} =/= Gospel],
     {Value, Test1} = choose_one(Values, Test),
     Config1 = Config #config { nodes = orddict:erase(Value, Nodes) },
-    {{config_remove_node, Value}, set_config(Config1, Test1)}.
+    {{config_remove_node, Value},
+     clusterer_utils:set_config(Config1, Test1)}.
 
 %% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<
 
@@ -205,47 +213,34 @@ delete_node_instr(Test = #test { nodes = Nodes }) ->
 %% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<
 
 reset_node_instr(Node = #node { name = Name, state = off }, Test) ->
-    {{reset_node, Name}, store_node(Node #node { state = reset }, Test)}.
+    {{reset_node, Name},
+     clusterer_utils:store_node(Node #node { state = reset }, Test)}.
 
 start_node_instr(Node = #node { name = Name, state = State },
                  Test = #test { active_config = AConfig })
   when State =:= off orelse State =:= reset ->
-    {{start_node, Name}, store_node(set_node_state(Node, AConfig), Test)}.
+    {{start_node, Name},
+     clusterer_utils:store_node(
+       clusterer_utils:set_node_state(Node, AConfig), Test)}.
 
-start_node_with_config_instr(#node { name = Name, state = State },
+start_node_with_config_instr(Node = #node { name = Name, state = State },
                              Test = #test { valid_config = VConfig })
   when State =:= off orelse State =:= reset ->
-    {{start_node_with_config, Name, VConfig}, make_config_active(Test)}.
+    {{start_node_with_config, Name, VConfig},
+     clusterer_utils:make_config_active(
+       clusterer_utils:store_node(Node #node { state = ready }, Test))}.
 
 apply_config_instr(#node { name = Name },
                    Test = #test { valid_config = VConfig }) ->
     %% State = ready orelse State = {pending_shutdown, _}
-    {{apply_config_to_node, Name, VConfig}, make_config_active(Test)}.
+    {{apply_config_to_node, Name, VConfig},
+     clusterer_utils:make_config_active(Test)}.
 
 stop_node_instr(Node = #node { name = Name }, Test) ->
-    {{stop_node, Name}, store_node(Node #node { state = off }, Test)}.
+    {{stop_node, Name},
+     clusterer_utils:store_node(Node #node { state = off }, Test)}.
 
 %% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<
-
-set_config(Config = #config { nodes = [_|_] },
-           Test = #test { valid_config = undefined }) ->
-    Test #test { config = Config, valid_config = Config };
-set_config(Config = #config { nodes = [_|_], version = V },
-           Test = #test { valid_config = #config { version = VV } })
-  when V > VV ->
-    Test #test { config = Config, valid_config = Config };
-set_config(Config, Test) ->
-    Test #test { config = Config }.
-
-%% Because we know that the valid config is only applied to nodes
-%% which are involved in the config, modelling the propogation is
-%% easy.
-make_config_active(Test = #test { nodes        = Nodes,
-                                  valid_config = VConfig = #config { } }) ->
-    Nodes1 = orddict:map(
-               fun (_Name, Node) -> set_node_state(Node, VConfig) end, Nodes),
-    Test #test { nodes         = Nodes1,
-                 active_config = VConfig }.
 
 is_config_active(#test { active_config = undefined }) ->
     false;
@@ -256,16 +251,6 @@ is_config_active(#test { nodes = Nodes,
                      orddict:is_key(Name, Nodes) andalso
                          ready =:= (orddict:fetch(Name, Nodes)) #node.state
              end, ConfigNodes).
-
-store_node(Node = #node { name = Name }, Test = #test { nodes = Nodes }) ->
-    Test #test { nodes = orddict:store(Name, Node, Nodes) }.
-
-set_node_state(Node = #node { name = Name },
-               Config = #config { shutdown_timeout = ST }) ->
-    case contains_node(Name, Config) of
-         true  -> Node #node { state = ready };
-         false -> Node #node { state = {pending_shutdown, ST} }
-    end.
 
 generate_name(Test = #test { namer = {N, Host} }) ->
     {list_to_atom(lists:flatten(io_lib:format("node~p@~s", [N, Host]))),
@@ -285,9 +270,6 @@ choose_one_noop2(List, Test) ->
 choose_one(List, Test = #test { seed = Seed }) ->
     Len = length(List),
     {lists:nth(1 + (Seed rem Len), List), Test #test { seed = Seed div Len }}.
-
-contains_node(Node,  #config { nodes = Nodes }) -> orddict:is_key(Node, Nodes);
-contains_node(_Node, undefined)                 -> false.
 
 step_if_seed(_Fun, Step = #step { final_state = #test { seed = 0 } }) ->
     Step;
