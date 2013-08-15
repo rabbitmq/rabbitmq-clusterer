@@ -4,21 +4,70 @@
 
 -include("clusterer_test.hrl").
 
+-define(SLEEP, timer:sleep(500)).
+
 run_program([], InitialState) ->
     {ok, InitialState};
 run_program([Step | Steps], InitialState) ->
     PredictedState = Step #step.final_state,
-    AchievedStep = run_step(Step #step { final_state = InitialState }),
-    ObservedState = await_stability(AchievedStep #step.final_state),
-    case compare_state(PredictedState,
-                       AchievedStep #step.final_state,
-                       ObservedState) of
-        ok -> run_program(Steps, PredictedState);
-        E  -> E
+    AchievedState = (run_step(Step #step { final_state = InitialState })
+                    ) #step.final_state,
+    ok = assert_divergence_avoidance(PredictedState, AchievedState),
+    case compare_state(PredictedState, observe_stable_state(AchievedState)) of
+        {ok, ObservedState} -> run_program(Steps, ObservedState);
+        E                   -> E
     end.
 
 run_step(Step) ->
     run_modify_config(run_existential_node(run_modify_nodes(Step))).
+
+%% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<
+
+assert_divergence_avoidance(#test { nodes         = NodesPred,
+                                    config        = Config,
+                                    valid_config  = VConfig,
+                                    active_config = AConfig },
+                            #test { nodes         = NodesAchi,
+                                    config        = Config,
+                                    valid_config  = VConfig,
+                                    active_config = AConfig }) ->
+    %% Configs should just match exactly. Nodes will differ only in
+    %% that Achi will have pids and may be 'off' rather than
+    %% 'pending_shutdown'.
+    case {orddict:fetch_keys(NodesPred), orddict:fetch_keys(NodesAchi)} of
+        {Eq, Eq} ->
+            orddict:fold(
+              fun (_Name, _Node, {error, _} = Err) ->
+                      Err;
+                  (Name, #node { name = Name, state = StateAchi }, ok) ->
+                      #node { name = Name, state = StatePred } =
+                          orddict:fetch(Name, NodesPred),
+                      case {StatePred, StateAchi} of
+                          {EqSt,                  EqSt} -> ok;
+                          {{pending_shutdown, _}, off } -> ok;
+                          {_,                     _   } ->
+                              {error, {node_state_divergence, Name,
+                                       StateAchi, StatePred}}
+                      end
+              end, ok, NodesAchi);
+        {Pr, Ac} ->
+            {error, {node_divergence, Pr, Ac}}
+    end;
+assert_divergence_avoidance(Pred, Achi) ->
+    {error, {config_divergence, Pred, Achi}}.
+
+observe_stable_state(Test = #test { nodes = Nodes }) ->
+    Pids = [Pid || #node { pid = Pid } <- orddict:to_list(Nodes)],
+    case clusterer_node:all_stable(Pids) of
+        not_stable  -> ?SLEEP,
+                       observe_stable_state(Test);
+        {stable, S} -> Observed = clusterer_node:observe_state(Pids),
+                       case clusterer_node:all_stable(Pids) of
+                           {stable, S} -> S;
+                           _           -> ?SLEEP,
+                                          observe_stable_state(Test)
+                       end
+    end.
 
 %% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<
 
