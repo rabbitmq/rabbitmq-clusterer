@@ -7,8 +7,9 @@
               }).
 
 -record(node, { name,
-                pid,
-                state
+                port,
+                state,
+                pid
               }).
 
 -record(config, { version,

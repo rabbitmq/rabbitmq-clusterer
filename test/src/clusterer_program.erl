@@ -4,6 +4,8 @@
 
 -include("clusterer_test.hrl").
 
+-define(BASE_PORT, 10000).
+
 generate_program(Test = #test {}) ->
     generate_program([], Test).
 
@@ -195,11 +197,12 @@ remove_node_from_config_instr(
 %% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<
 
 create_node_instr(Test) ->
-    {Name, Test1 = #test { nodes = Nodes }} = generate_name(Test),
+    {Name, Port, Test1 = #test { nodes = Nodes }} = generate_name_port(Test),
     Node = #node { name  = Name,
+                   port  = Port,
                    pid   = undefined,
                    state = reset },
-    {{create_node, Name},
+    {{create_node, Name, Port},
      Test1 #test { nodes = orddict:store(Name, Node, Nodes) }}.
 
 delete_node_instr(Test = #test { nodes = Nodes }) ->
@@ -252,8 +255,9 @@ is_config_active(#test { nodes = Nodes,
                          ready =:= (orddict:fetch(Name, Nodes)) #node.state
              end, ConfigNodes).
 
-generate_name(Test = #test { namer = {N, Host} }) ->
+generate_name_port(Test = #test { namer = {N, Host} }) ->
     {list_to_atom(lists:flatten(io_lib:format("node~p@~s", [N, Host]))),
+     ?BASE_PORT + N,
      Test #test { namer = {N+1, Host} }}.
 
 noop(Test       ) -> {noop, Test}.

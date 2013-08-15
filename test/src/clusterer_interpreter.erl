@@ -134,11 +134,12 @@ run_existential_node(Step = #step { existential_node_instr = Instr,
 
 run_existential_node_instr(noop, Test) ->
     Test;
-run_existential_node_instr({create_node, Name},
+run_existential_node_instr({create_node, Name, Port},
                            Test = #test { nodes = Nodes }) ->
     false = orddict:is_key(Name, Nodes), %% ASSERTION
-    {ok, Pid} = clusterer_node:start_link(Name),
+    {ok, Pid} = clusterer_node:start_link(Name, Port),
     Nodes1 = orddict:store(Name, #node { name  = Name,
+                                         port  = Port,
                                          state = reset,
                                          pid   = Pid }, Nodes),
     Test #test { nodes = Nodes1 };
