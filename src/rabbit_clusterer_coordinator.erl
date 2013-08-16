@@ -143,7 +143,8 @@ handle_call({{transitioner, _TKind}, _Msg}, _From, State) ->
     {reply, invalid, State};
 
 handle_call({apply_config, NewConfig}, From,
-            State = #state { status = Status, config = Config })
+            State = #state { status = Status,
+                             config = Config })
   when Status =:= ready orelse Status =:= pending_shutdown
        orelse ?IS_TRANSITIONER(Status) ->
     case {rabbit_clusterer_config:load(NewConfig), Status} of
@@ -207,7 +208,8 @@ handle_cast({comms, _Comms, _Result}, State) ->
     {noreply, State};
 
 handle_cast({new_config, _ConfigRemote, Node},
-            State = #state { status = preboot, nodes = Nodes }) ->
+            State = #state { status = preboot,
+                             nodes  = Nodes }) ->
     %% In preboot we don't know what our eventual config is going to
     %% be so as a result we just ignore the provided remote config but
     %% make a note to send over our eventual config to this node once
@@ -217,8 +219,10 @@ handle_cast({new_config, _ConfigRemote, Node},
     %% deal with the list.
     {noreply, State #state { nodes = [Node | Nodes] }};
 handle_cast({new_config, ConfigRemote, Node},
-            State = #state { status = booting, nodes = Nodes,
-                             node_id = NodeID, config = Config }) ->
+            State = #state { status  = booting,
+                             nodes   = Nodes,
+                             node_id = NodeID,
+                             config  = Config }) ->
     %% In booting, it's not safe to reconfigure our own rabbit, and
     %% given the transitioning state of mnesia during rabbit boot we
     %% don't want anyone else to interfere either, so again, we just
@@ -242,7 +246,8 @@ handle_cast({new_config, ConfigRemote, Node},
     %% deadlock.
     {noreply, transitioner_event({new_config, ConfigRemote, Node}, State)};
 handle_cast({new_config, ConfigRemote, Node},
-            State = #state { node_id = NodeID, config = Config }) ->
+            State = #state { node_id = NodeID,
+                             config  = Config }) ->
     %% Status is either ready or pending_shutdown. In both cases, we
     %% a) know what our config really is; b) it's safe to begin
     %% transitions to other configurations.
@@ -301,7 +306,7 @@ handle_cast(Msg, State) ->
 %% Info
 %%----------------
 handle_info({shutdown, Ref},
-            State = #state { status = pending_shutdown,
+            State = #state { status             = pending_shutdown,
                              transitioner_state = {shutdown, Ref} }) ->
     %% This is the timer coming back to us. We actually need to halt
     %% the VM here (which set_status does).
@@ -341,7 +346,8 @@ handle_info(poke_the_dead, State = #state { dead        = Dead,
     MRefsNew = [monitor(process, {?SERVER, N}) || N <- Dead],
     ok = send_new_config(Config, Dead),
     Alive1 = MRefsNew ++ Alive,
-    {noreply, State #state { dead = [], alive_mrefs = Alive1,
+    {noreply, State #state { dead           = [],
+                             alive_mrefs    = Alive1,
                              poke_timer_ref = undefined }};
 handle_info(poke_the_dead, State) ->
     {noreply, State #state { poke_timer_ref = undefined }};
