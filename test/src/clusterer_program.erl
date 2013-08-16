@@ -153,7 +153,7 @@ modify_node_instructions(#node { name = Name, state = {pending_shutdown, _} },
 
 change_shutdown_timeout_instr(
   Test = #test { config = Config = #config { shutdown_timeout = ST } }) ->
-    Values = [infinity, 0, 1, 2, 10, 30],
+    Values = [infinity, 0, 1, 10],
     {Value, Test1} = choose_one([V || V <- Values, V =/= ST], Test),
     Config1 = Config #config { shutdown_timeout = Value },
     {{config_shutdown_timeout_to, Value},
