@@ -61,7 +61,8 @@ assert_divergence_avoidance(Pred, Achi) ->
 observe_stable_state(Test = #test { nodes = Nodes }) ->
     Pids = [Pid || {_Name, #node { pid = Pid }} <- orddict:to_list(Nodes)],
     case clusterer_node:observe_stable_state(Pids) of
-        {stable, S} -> case clusterer_node:observe_stable_state(Pids) of
+        {stable, S} -> ?SLEEP, %% always sleep, just to allow some time
+                       case clusterer_node:observe_stable_state(Pids) of
                            {stable, S} -> S; %% No one has changed, all good.
                            _           -> ?SLEEP,
                                           observe_stable_state(Test)

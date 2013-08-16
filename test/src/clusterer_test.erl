@@ -28,7 +28,7 @@ test(Host, Seed) ->
     Program = clusterer_program:generate_program(State),
     case starts_nodes(Program) of
         true ->
-            io:format("Starting interesting program number ~p:~n~p~n",
+            io:format("Starting interesting program number ~p:~n~p~n~n",
                       [Seed, Program]),
             {Program, clusterer_interpreter:run_program(Program, State)};
         false ->

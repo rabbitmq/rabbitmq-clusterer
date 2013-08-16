@@ -49,7 +49,7 @@ apply_config(Pid, Config) -> gen_server:cast(Pid, {apply_config, Config}).
 
 stop(Pid) -> gen_server:cast(Pid, stop).
 
-exit(Pid) -> gen_server:cast(Pid, exit).
+exit(Pid) -> gen_server:call(Pid, exit, infinity).
 
 %% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<
 
@@ -62,6 +62,12 @@ init([Name, Port]) ->
     ok = delete_internal_cluster_config(State),
     {ok, State}.
 
+handle_call(exit, From, State = #state { name = Name }) ->
+    ok = make_cmd("stop-node", State),
+    ok = await_death(Name),
+    ok = make_cmd("cleandb", State),
+    ok = delete_internal_cluster_config(State),
+    {stop, normal, ok, State};
 handle_call(Msg, From, State) ->
     {stop, {unhandled_call, Msg, From}, State}.
 
@@ -78,16 +84,20 @@ handle_cast(reset, State = #state { name = Name }) ->
 handle_cast(start, State = #state { name = Name }) ->
     pang = net_adm:ping(Name), %% ASSERTION
     ok = make_bg_cmd("run", "-noinput", State),
+    ok = await_life(Name),
     {noreply, State};
 handle_cast(stop, State = #state { name = Name }) ->
     pong = net_adm:ping(Name),
     ok = make_cmd("stop-node", State),
+    ok = await_death(Name),
     {noreply, State};
-handle_cast({start_with_config, Config}, State = #state { name_str = NameStr }) ->
+handle_cast({start_with_config, Config}, State = #state { name     = Name,
+                                                          name_str = NameStr }) ->
     ok = store_external_cluster_config(NameStr, Config),
     ok = make_bg_cmd("run", "-rabbitmq_clusterer config \\\\\\\"" ++
                          external_config_file(NameStr) ++ "\\\\\\\" -noinput",
                      State),
+    ok = await_life(Name),
     {noreply, State};
 handle_cast({apply_config, Config}, State = #state { name     = Name,
                                                      name_str = NameStr }) ->
@@ -102,10 +112,9 @@ handle_cast({stable_state, Ref, From}, State = #state { name     = Name,
         try
             case rabbit_clusterer_coordinator:request_status(Name) of
                 preboot                      -> false;
-                {_Config, {transitioner, _}} -> false;
+                {Config,  {transitioner, _}} -> {ready, convert(Config)};
                 {_Config, booting}           -> false;
-                { Config, ready}             -> {ready,
-                                                 convert(Config)};
+                { Config, ready}             -> {ready, convert(Config)};
                 { Config, pending_shutdown}  -> {pending_shutdown,
                                                  convert(Config)}
             end
@@ -125,11 +134,6 @@ handle_cast({stable_state, Ref, From}, State = #state { name     = Name,
         end,
     From ! {stable_state, Ref, Name, Result},
     {noreply, State};
-handle_cast(exit, State = #state { name = Name }) ->
-    ok = make_cmd("stop-node", State),
-    ok = make_cmd("cleandb", State),
-    ok = delete_internal_cluster_config(State),
-    {stop, normal, State};
 handle_cast(Msg, State) ->
     {stop, {unhandled_cast, Msg}, State}.
 
@@ -141,6 +145,22 @@ terminate(_Reason, _State) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+await_death(Name) ->
+    case net_adm:ping(Name) of
+        pong -> timer:sleep(1000),
+                await_death(Name);
+        pang -> timer:sleep(500),
+                ok
+    end.
+
+await_life(Name) ->
+    case net_adm:ping(Name) of
+        pang -> timer:sleep(1000),
+                await_life(Name);
+        pong -> timer:sleep(500),
+                ok
+    end.
 
 convert(ClustererConfig) ->
     Version = rabbit_clusterer_config:version(ClustererConfig),
@@ -203,6 +223,7 @@ make_cmd(Action, #state { name_str = NameStr, port = Port }) ->
     ok.
 
 make_bg_cmd(Action, StartArgs, #state { name_str = NameStr, port = Port }) ->
+    Log = mnesia_dir(NameStr),
     Cmd = lists:flatten(["RABBITMQ_NODENAME=",
                          NameStr,
                          " RABBITMQ_NODE_PORT=",
@@ -213,9 +234,12 @@ make_bg_cmd(Action, StartArgs, #state { name_str = NameStr, port = Port }) ->
                          makefile_dir(),
                          " ",
                          Action,
-                         " > /tmp/log 2> /tmp/log.err &"]),
+                         " 1>> ",
+                         Log,
+                         "-stdout.log 2>> ",
+                         Log,
+                         "-stderr.log &"]),
     os:cmd(Cmd),
-    timer:sleep(5000),
     ok.
 
 
