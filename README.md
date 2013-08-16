@@ -53,8 +53,7 @@ all the other nodes as necessary.
 
     [{version, 43},
      {nodes, [{rabbit@hostA, disc}, {rabbit@hostB, ram}, {rabbit@hostD, disc}]},
-     {gospel, {node, rabbit@hostD}},
-     {shutdown_timeout, 30}].
+     {gospel, {node, rabbit@hostD}}].
 
 The above gives an example cluster config. This specifies that the
 cluster is formed out of the nodes `rabbit@hostA`, `rabbit@hostB` and
@@ -163,49 +162,6 @@ and running, at which point it could sync with that node.
       held by the new younger *A*, and so *B* and *C* will reset as
       necessary.
 
-* shutdown_timeout: `infinity` or non negative integer
-    
-    If a younger config is applied to a node and that node is not
-    listed in the `nodes` tuple, then the node should turn off. The
-    Clusterer is more than happy to do this. However, for various
-    reasons, you might like the Erlang node (and the Clusterer) to
-    stay up for some time, even once Rabbit itself has been
-    stopped. This would allow you to move a node from one cluster to
-    another without ever having to directly interact with that node,
-    for example. Another reason would be your automated deployment
-    tool might repeatedly check that the Erlang node to run Rabbit is
-    alive. If the Clusterer were to actually stop the Erlang node
-    entirely then the deployment tool might repeatedly try to start it
-    up again only for it to discover it should be off and shut it down
-    again, thus a pointless cycle develops.
-    
-    The `shutdown_timeout` tuple specifies the amount of time, in
-    seconds, between the Rabbit application being stopped on the node
-    and the Erlang node itself being terminated. Alternatively
-    `infinity` can be specified in which case the Erlang node itself
-    (and the Clusterer application) is never terminated.
-    
-    In general, the setting here gives the size of the window during
-    which you can grab a node which has left one cluster and join it
-    into another. For example, consider you have a cluster of *A*, *B*
-    and *C* and you want to remove *C* and join it with *D*. If you
-    just apply the *C*+*D* config to *C* then that config will also be
-    passed to *A* and *B* who will spot they're not part of this
-    config, and so they will shut themselves down - not what you want!
-    Instead, apply just an *A*+*B* config to any of *A*, *B* or
-    *C*. This will eject *C* from the cluster and for the amount of
-    time specified by `shutdown_timeout`, will sit idle, awaiting
-    further instructions. You can then apply the *C*+*D* config to
-    either *C* or *D*. The *C*+*D* cluster will then form, and that
-    config will not be passed to *A*+*B*, so that cluster will survive
-    too.
-    
-    Of course, even if *C* turns all the way off, there's nothing to
-    stop you restarting *C* explicitly with the *C*+*D* config: the
-    same outcome will be achieved. The `shutdown_timeout` tuple is
-    just a convenience to provide a simpler path through this type of
-    scenario.
-
 
 ## Applying cluster configs
 
@@ -241,8 +197,7 @@ There are a couple of ways to specify a cluster config:
           [{config,
               [{version, 43},
                {nodes, [{rabbit@hostA, disc}, {rabbit@hostB, ram}, {rabbit@hostD, disc}]},
-               {gospel, {node, rabbit@hostD}},
-               {shutdown_timeout, 30}]
+               {gospel, {node, rabbit@hostD}}
            }]
        }].
   

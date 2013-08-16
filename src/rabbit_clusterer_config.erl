@@ -4,13 +4,11 @@
          transfer_node_ids/2, update_node_id/4, add_node_ids/3, add_node_id/4,
          compare/2, is_compatible/2,
          contains_node/2, is_singleton/2, version/1, nodenames/1,
-         disc_nodenames/1, node_type/2, node_id/2, gospel/1,
-         shutdown_timeout/1]).
+         disc_nodenames/1, node_type/2, node_id/2, gospel/1]).
 
 -record(config, { version,
                   nodes,
                   gospel,
-                  shutdown_timeout,
                   node_ids
                 }).
 %%----------------------------------------------------------------------------
@@ -116,7 +114,6 @@ default_config() ->
       [{version,          0},
        {nodes,            [{MyNode, disc}]},
        {gospel,           {node, MyNode}},
-       {shutdown_timeout, infinity},
        {node_id,          NodeID},
        {node_ids,         orddict:from_list([{MyNode, NodeID}])}
       ]).
@@ -132,7 +129,7 @@ create_node_id() ->
 
 %%----------------------------------------------------------------------------
 
-required_keys() -> [version, nodes, gospel, shutdown_timeout].
+required_keys() -> [version, nodes, gospel].
 
 optional_keys() -> [{node_ids, orddict:new()}].
 
@@ -247,16 +244,6 @@ validate_key(gospel, {node, Node}, Config = #config { nodes = Nodes }) ->
     end;
 validate_key(gospel, Gospel, _Config) ->
     {error, rabbit_misc:format("Invalid gospel setting: ~p", [Gospel])};
-validate_key(shutdown_timeout, infinity, _Config) ->
-    ok;
-validate_key(shutdown_timeout, Timeout, _Config)
-  when is_integer(Timeout) andalso Timeout >= 0 ->
-    ok;
-validate_key(shutdown_timeout, Timeout, _Config) ->
-    {error,
-     rabbit_misc:format(
-       "Require shutdown_timeout to be 'infinity' or non-negative integer: ~p",
-       [Timeout])};
 validate_key(node_ids, Orddict, _Config) when is_list(Orddict) ->
     ok;
 validate_key(node_ids, Orddict, _Config) ->
@@ -368,5 +355,3 @@ node_type(Node, #config { nodes = Nodes }) -> orddict:fetch(Node, Nodes).
 node_id(Node, #config { node_ids = NodeIDs }) -> orddict:fetch(Node, NodeIDs).
 
 gospel(#config { gospel = Gospel }) -> Gospel.
-
-shutdown_timeout(#config { shutdown_timeout = Timeout }) -> Timeout.

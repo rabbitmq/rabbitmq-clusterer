@@ -130,8 +130,7 @@ handle_call({request_status, NewNode, NewNodeID}, _From,
                   {true,  _Config} -> Config;
                   {false, Config2} -> Config2
               end,
-    {reply, {Config1, Status},
-     reschedule_shutdown(State #state { config = Config1 })};
+    {reply, {Config1, Status}, State #state { config = Config1 }};
 
 %% This is where a call from the transitioner on one node to the
 %% transitioner on another node lands.
@@ -305,16 +304,6 @@ handle_cast(Msg, State) ->
 %%----------------
 %% Info
 %%----------------
-handle_info({shutdown, Ref},
-            State = #state { status             = pending_shutdown,
-                             transitioner_state = {shutdown, Ref} }) ->
-    %% This is the timer coming back to us. We actually need to halt
-    %% the VM here (which set_status does).
-    {stop, normal, set_status(shutdown, State)};
-handle_info({shutdown, _Ref}, State) ->
-    %% Something saved us in the meanwhilst!
-    {noreply, State};
-
 handle_info({transitioner_delay, Event},
             State = #state { status = {transitioner, _} }) ->
     %% A transitioner wanted some sort of timer based callback. Note
@@ -482,8 +471,9 @@ process_transitioner_response({SuccessOrShutdown, ConfigNew},
     case SuccessOrShutdown of
         success  -> %% Wait for the ready transition before updating monitors
                     set_status(booting, State1);
-        shutdown -> stop_monitoring(
-                      schedule_shutdown(set_status(pending_shutdown, State1)))
+        shutdown -> set_status(shutdown,
+                               set_status(pending_shutdown,
+                                          stop_monitoring(State1)))
     end;
 process_transitioner_response({config_changed, ConfigNew}, State) ->
     %% begin_transition relies on unmerged configs, so don't merge
@@ -515,26 +505,6 @@ stop_comms(State = #state { comms = undefined }) ->
 stop_comms(State = #state { comms = Token }) ->
     ok = rabbit_clusterer_comms:stop(Token),
     State #state { comms = undefined }.
-
-schedule_shutdown(State = #state { status = pending_shutdown,
-                                   config = Config }) ->
-    case rabbit_clusterer_config:shutdown_timeout(Config) of
-        infinity -> State #state { transitioner_state = undefined };
-        Timeout  -> Ref = make_ref(),
-                    erlang:send_after(Timeout*1000, self(), {shutdown, Ref}),
-                    State #state { transitioner_state = {shutdown, Ref} }
-    end;
-schedule_shutdown(State) ->
-    State.
-
-reschedule_shutdown(State = #state { status             = pending_shutdown,
-                                     transitioner_state = {shutdown, _Ref},
-                                     config             = Config }) ->
-    %% ASSERTION
-    true = rabbit_clusterer_config:shutdown_timeout(Config) =/= infinity,
-    schedule_shutdown(State);
-reschedule_shutdown(State) ->
-    State.
 
 update_monitoring(State = #state { config = ConfigNew,
                                    nodes  = NodesOld }) ->
