@@ -266,10 +266,8 @@ noop(_Node, Test) -> {noop, Test}.
 noops(#test { nodes = Nodes }, Fun) ->
     lists:duplicate(1 + (orddict:size(Nodes) div 2), Fun).
 
-choose_one_noop1(List, Test) ->
-    choose_one(List ++ noops(Test, fun noop/1), Test).
-choose_one_noop2(List, Test) ->
-    choose_one(List ++ noops(Test, fun noop/2), Test).
+choose_one_noop1(List, Test) -> choose_one([fun noop/1 | List], Test).
+choose_one_noop2(List, Test) -> choose_one([fun noop/2 | List], Test).
 
 choose_one(List, Test = #test { seed = Seed }) ->
     Len = length(List),

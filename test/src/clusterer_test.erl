@@ -15,14 +15,15 @@ test(Seed) ->
     test(Host, Seed).
 
 test(Host, Seed) ->
-    clusterer_program:generate_program(
-      #test { seed          = Seed,
-              namer         = {0, Host},
-              nodes         = orddict:new(),
-              config        = #config { nodes            = [],
-                                        gospel           = reset,
-                                        shutdown_timeout = infinity,
-                                        version          = 0 },
-              valid_config  = undefined,
-              active_config = undefined
-            }).
+    State = #test { seed          = Seed,
+                    namer         = {0, Host},
+                    nodes         = orddict:new(),
+                    config        = #config { nodes            = [],
+                                              gospel           = reset,
+                                              shutdown_timeout = infinity,
+                                              version          = 0 },
+                    valid_config  = undefined,
+                    active_config = undefined
+                  },
+    Program = clusterer_program:generate_program(State),
+    {Program, clusterer_interpreter:run_program(Program, State)}.

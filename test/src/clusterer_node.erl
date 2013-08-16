@@ -2,7 +2,8 @@
 
 -export([observe_stable_state/1,
          start_link/2, delete/1,
-         reset/1, start/1, start_with_config/2, apply_config/2, stop/1]).
+         reset/1, start/1, start_with_config/2, apply_config/2, stop/1,
+         exit/1]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
@@ -15,6 +16,8 @@
 
 %% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<
 
+observe_stable_state([]) ->
+    {stable, orddict:new()};
 observe_stable_state(Pids) ->
     Self = self(),
     Ref = make_ref(),
@@ -45,6 +48,8 @@ start_with_config(Pid, Config) ->
 apply_config(Pid, Config) -> gen_server:cast(Pid, {apply_config, Config}).
 
 stop(Pid) -> gen_server:cast(Pid, stop).
+
+exit(Pid) -> gen_server:cast(Pid, exit).
 
 %% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<
 
@@ -87,7 +92,8 @@ handle_cast({apply_config, Config}, State = #state { name     = Name,
     ok = ctl("eval 'rabbit_clusterer:apply_config(\"" ++
                  external_config_file(NameStr) ++ "\").'", State),
     {noreply, State};
-handle_cast({stable_state, Ref, From}, State = #state { name = Name }) ->
+handle_cast({stable_state, Ref, From}, State = #state { name     = Name,
+                                                        name_str = NameStr}) ->
     Result =
         try
             case rabbit_clusterer_coordinator:request_status(Name) of
@@ -100,12 +106,25 @@ handle_cast({stable_state, Ref, From}, State = #state { name = Name }) ->
                                                  convert(Config)}
             end
         catch
-            exit:{R, _}      when ?IS_NODE_OFF(R) -> off;
-            exit:{{R, _}, _} when ?IS_NODE_OFF(R) -> off;
+            exit:{R, _}      when ?IS_NODE_OFF(R) ->
+                case is_reset(NameStr) of
+                    true  -> reset;
+                    false -> off
+                end;
+            exit:{{R, _}, _} when ?IS_NODE_OFF(R) ->
+                case is_reset(NameStr) of
+                    true  -> reset;
+                    false -> off
+                end;
             _Class:_Reason                        -> false
         end,
     From ! {stable_state, Ref, Name, Result},
     {noreply, State};
+handle_cast(exit, State = #state { name = Name }) ->
+    ok = make_cmd("stop-node", State),
+    ok = make_cmd("cleandb", State),
+    ok = delete_internal_cluster_config(State),
+    {stop, normal, State};
 handle_cast(Msg, State) ->
     {stop, {unhandled_cast, Msg}, State}.
 
@@ -141,6 +160,14 @@ mnesia_dir(NameStr) when is_list(NameStr) ->
         {false, false } -> filename:join("/tmp", DirName);
         {false, TmpDir} -> filename:join(TmpDir, DirName);
         {Dir,   _     } -> Dir
+    end.
+
+is_reset(NameStr) when is_list(NameStr) ->
+    Dir = mnesia_dir(NameStr),
+    case file:list_dir(Dir) of
+        {error, enoent} -> true;
+        {ok,    []    } -> true;
+        {ok,    _     } -> false
     end.
 
 external_config_file(NameStr) when is_list(NameStr) ->

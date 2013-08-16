@@ -6,8 +6,10 @@
 
 -define(SLEEP, timer:sleep(500)).
 
-run_program([], InitialState) ->
-    {ok, InitialState};
+run_program([], #test { nodes = Nodes }) ->
+    [clusterer_node:exit(Pid)
+     || {_Name, #node { pid = Pid }} <- orddict:to_list(Nodes)],
+    ok;
 run_program([Step | Steps], InitialState) ->
     PredictedState = Step #step.final_state,
     AchievedState = (run_step(Step #step { final_state = InitialState })
@@ -57,39 +59,46 @@ assert_divergence_avoidance(Pred, Achi) ->
     {error, {config_divergence, Pred, Achi}}.
 
 observe_stable_state(Test = #test { nodes = Nodes }) ->
-    Pids = [Pid || #node { pid = Pid } <- orddict:to_list(Nodes)],
+    Pids = [Pid || {_Name, #node { pid = Pid }} <- orddict:to_list(Nodes)],
     case clusterer_node:observe_stable_state(Pids) of
         not_stable  -> ?SLEEP,
                        observe_stable_state(Test);
-        {stable, S} -> case clusterer_node:all_stable(Pids) of
+        {stable, S} -> case clusterer_node:observe_stable_state(Pids) of
                            {stable, S} -> S; %% No one has changed, all good.
                            _           -> ?SLEEP,
                                           observe_stable_state(Test)
                        end
     end.
 
-compare_state(#test { nodes         = Nodes,
-                      active_config = AConfig }, StableState) ->
+compare_state(Test = #test { nodes         = Nodes,
+                             active_config = AConfig }, StableState) ->
     case {orddict:fetch_keys(Nodes), orddict:fetch_keys(Nodes)} of
         {Eq, Eq} ->
-            orddict:fold(
-              fun (_Name, _Node, {error, _} = Err) ->
-                      Err;
-                  (Name, Node = #node { name = Name, state = State }, Acc) ->
-                      Observed = orddict:fetch(Name, StableState),
-                      case {State, Observed} of
-                          {off, off} ->
-                              orddict:store(Name, Node, Acc);
-                          {{pending_shutdown, _}, off} ->
-                              orddict:store(Name, Node #node { state = off }, Acc);
-                          {{pending_shutdown, _}, {pending_shutdown, AConfig}} ->
-                              orddict:store(Name, Node, Acc);
-                          {ready, {ready, AConfig}} ->
-                              orddict:store(Name, Node, Acc);
-                          {_, _} = DivergenceSt ->
-                              {error, {node_state_divergence, DivergenceSt}}
-                      end
-              end, orddict:new(), Nodes);
+            Result =
+                orddict:fold(
+                  fun (_Name, _Node, {error, _} = Err) ->
+                          Err;
+                      (Name, Node = #node { name = Name, state = State }, Acc) ->
+                          Observed = orddict:fetch(Name, StableState),
+                          case {State, Observed} of
+                              {off, off} ->
+                                  orddict:store(Name, Node, Acc);
+                              {reset, reset} ->
+                                  orddict:store(Name, Node, Acc);
+                              {{pending_shutdown, _}, off} ->
+                                  orddict:store(Name, Node #node { state = off }, Acc);
+                              {{pending_shutdown, _}, {pending_shutdown, AConfig}} ->
+                                  orddict:store(Name, Node, Acc);
+                              {ready, {ready, AConfig}} ->
+                                  orddict:store(Name, Node, Acc);
+                              {_, _} = DivergenceSt ->
+                                  {error, {node_state_divergence, DivergenceSt}}
+                          end
+                  end, orddict:new(), Nodes),
+            case Result of
+                {error, _} = Err -> Err;
+                Nodes1           -> Test #test { nodes = Nodes }
+            end;
         {_, _} = DivergenceNodes ->
             {error, {nodes_divergence, DivergenceNodes}}
     end.
