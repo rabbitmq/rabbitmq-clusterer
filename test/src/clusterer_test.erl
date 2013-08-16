@@ -26,4 +26,18 @@ test(Host, Seed) ->
                     active_config = undefined
                   },
     Program = clusterer_program:generate_program(State),
-    {Program, clusterer_interpreter:run_program(Program, State)}.
+    case starts_nodes(Program) of
+        true ->
+            {Program, clusterer_interpreter:run_program(Program, State)};
+        false ->
+            uninteresting
+    end.
+
+
+starts_nodes([]) ->
+    false;
+starts_nodes([#step { modify_node_instrs = Instrs } | Steps]) ->
+    case [true || {start_node_with_config, _, _} <- Instrs] of
+        [] -> starts_nodes(Steps);
+        _  -> true
+    end.

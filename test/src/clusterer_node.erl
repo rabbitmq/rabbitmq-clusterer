@@ -12,7 +12,7 @@
 
 -record(state, { name, name_str, port }).
 
--define(IS_NODE_OFF(R), R =:= noconnection; R =:= nodedown).
+-define(IS_NODE_OFF(R), R =:= noconnection; R =:= nodedown; R =:= noproc).
 
 %% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<
 
@@ -54,9 +54,13 @@ exit(Pid) -> gen_server:cast(Pid, exit).
 %% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<
 
 init([Name, Port]) ->
-    {ok, #state { name     = Name,
-                  name_str = atom_to_list(Name),
-                  port     = rabbit_misc:format("~p", [Port]) }}.
+    State = #state { name     = Name,
+                     name_str = atom_to_list(Name),
+                     port     = rabbit_misc:format("~p", [Port]) },
+    pang = net_adm:ping(Name), %% ASSERTION
+    ok = make_cmd("cleandb", State),
+    ok = delete_internal_cluster_config(State),
+    {ok, State}.
 
 handle_call(Msg, From, State) ->
     {stop, {unhandled_call, Msg, From}, State}.
@@ -81,8 +85,8 @@ handle_cast(stop, State = #state { name = Name }) ->
     {noreply, State};
 handle_cast({start_with_config, Config}, State = #state { name_str = NameStr }) ->
     ok = store_external_cluster_config(NameStr, Config),
-    ok = make_bg_cmd("run", "-noinput -rabbitmq_clusterer config \\\\\\\"" ++
-                         external_config_file(NameStr) ++ "\\\\\\\"",
+    ok = make_bg_cmd("run", "-rabbitmq_clusterer config \\\\\\\"" ++
+                         external_config_file(NameStr) ++ "\\\\\\\" -noinput",
                      State),
     {noreply, State};
 handle_cast({apply_config, Config}, State = #state { name     = Name,
@@ -116,7 +120,8 @@ handle_cast({stable_state, Ref, From}, State = #state { name     = Name,
                     true  -> reset;
                     false -> off
                 end;
-            _Class:_Reason                        -> false
+            _Class:_Reason ->
+                false
         end,
     From ! {stable_state, Ref, Name, Result},
     {noreply, State};
@@ -208,8 +213,9 @@ make_bg_cmd(Action, StartArgs, #state { name_str = NameStr, port = Port }) ->
                          makefile_dir(),
                          " ",
                          Action,
-                         " >/dev/null 2>/dev/null &"]),
+                         " > /tmp/log 2> /tmp/log.err &"]),
     os:cmd(Cmd),
+    timer:sleep(5000),
     ok.
 
 

@@ -40,6 +40,7 @@ make_mnesia_singleton(true) ->
     %% exist if we're a completely virgin node. So we just do the rest
     %% manually.
     error_logger:info_msg("Clusterer Resetting Rabbit~n"),
+    ok = rabbit_mnesia:ensure_mnesia_dir(),
     ok = rabbit_file:recursive_delete(
            filelib:wildcard(rabbit_mnesia:dir() ++ "/*")),
     ok = rabbit_node_monitor:reset_cluster_status(),

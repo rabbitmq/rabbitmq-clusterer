@@ -15,7 +15,7 @@ run_program([Step | Steps], InitialState) ->
     AchievedState = (run_step(Step #step { final_state = InitialState })
                     ) #step.final_state,
     ok = assert_divergence_avoidance(PredictedState, AchievedState),
-    case compare_state(PredictedState, observe_stable_state(AchievedState)) of
+    case compare_state(AchievedState, observe_stable_state(AchievedState)) of
         {ok, ObservedState} -> run_program(Steps, ObservedState);
         E                   -> E
     end.
@@ -61,13 +61,13 @@ assert_divergence_avoidance(Pred, Achi) ->
 observe_stable_state(Test = #test { nodes = Nodes }) ->
     Pids = [Pid || {_Name, #node { pid = Pid }} <- orddict:to_list(Nodes)],
     case clusterer_node:observe_stable_state(Pids) of
-        not_stable  -> ?SLEEP,
-                       observe_stable_state(Test);
         {stable, S} -> case clusterer_node:observe_stable_state(Pids) of
                            {stable, S} -> S; %% No one has changed, all good.
                            _           -> ?SLEEP,
                                           observe_stable_state(Test)
-                       end
+                       end;
+        _           -> ?SLEEP,
+                       observe_stable_state(Test)
     end.
 
 compare_state(Test = #test { nodes         = Nodes,
@@ -97,7 +97,7 @@ compare_state(Test = #test { nodes         = Nodes,
                   end, orddict:new(), Nodes),
             case Result of
                 {error, _} = Err -> Err;
-                Nodes1           -> Test #test { nodes = Nodes }
+                Nodes1           -> {ok, Test #test { nodes = Nodes }}
             end;
         {_, _} = DivergenceNodes ->
             {error, {nodes_divergence, DivergenceNodes}}
@@ -124,7 +124,7 @@ run_modify_node_instr({start_node, Name},
     ok = clusterer_node:start(Pid),
     clusterer_utils:store_node(
       clusterer_utils:set_node_state(Node, AConfig), Test);
-run_modify_node_instr({start_node_with_config_instr, Name, VConfig},
+run_modify_node_instr({start_node_with_config, Name, VConfig},
                       Test = #test { nodes        = Nodes,
                                      valid_config = VConfig }) ->
     Node = #node { state = State, pid = Pid } = orddict:fetch(Name, Nodes),
