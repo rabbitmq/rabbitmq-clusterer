@@ -471,9 +471,9 @@ process_transitioner_response({SuccessOrShutdown, ConfigNew},
     case SuccessOrShutdown of
         success  -> %% Wait for the ready transition before updating monitors
                     set_status(booting, State1);
-        shutdown -> stop_monitoring(
-                      set_status(shutdown,
-                                 set_status(pending_shutdown, State1)))
+        shutdown -> set_status(shutdown,
+                               set_status(pending_shutdown,
+                                          stop_monitoring(State1)))
     end;
 process_transitioner_response({config_changed, ConfigNew}, State) ->
     %% begin_transition relies on unmerged configs, so don't merge
