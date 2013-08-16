@@ -1,6 +1,6 @@
 -module(clusterer_node).
 
--export([observe_state/1, all_stable/1,
+-export([observe_stable_state/1,
          start_link/2, delete/1,
          reset/1, start/1, start_with_config/2, apply_config/2, stop/1]).
 
@@ -11,13 +11,22 @@
 
 -record(state, { name, name_str, port }).
 
+-define(IS_NODE_OFF(R), R =:= noconnection; R =:= nodedown).
+
 %% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<
 
-observe_state(Pids) ->
-    todo.
-
-all_stable(Pids) ->
-    todo.
+observe_stable_state(Pids) ->
+    Self = self(),
+    Ref = make_ref(),
+    [gen_server:cast(Pid, {stable_state, Ref, Self}) || Pid <- Pids],
+    Results = [receive
+                   {stable_state, Ref, Name, Result} ->
+                       {Name, Result}
+               end || _Pid <- Pids],
+    case [Name || {Name, false} <- Results] of
+        [] -> {stable, orddict:from_list(lists:usort(Results))};
+        _  -> not_stable
+    end.
 
 %% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<
 
@@ -49,41 +58,54 @@ handle_call(Msg, From, State) ->
 
 handle_cast(delete, State = #state { name = Name }) ->
     pang = net_adm:ping(Name), %% ASSERTION
-    ok = make_cmd("cleandb", "", State),
+    ok = make_cmd("cleandb", State),
     ok = delete_internal_cluster_config(State),
     {stop, normal, State};
 handle_cast(reset, State = #state { name = Name }) ->
     pang = net_adm:ping(Name), %% ASSERTION
-    ok = make_cmd("cleandb", "", State),
+    ok = make_cmd("cleandb", State),
     ok = delete_internal_cluster_config(State),
     {noreply, State};
 handle_cast(start, State = #state { name = Name }) ->
     pang = net_adm:ping(Name), %% ASSERTION
     ok = make_bg_cmd("run", "-noinput", State),
     {noreply, State};
-handle_cast(stop, State) ->
-    %% It could have been in pending_shutdown and have died off.
-    %% However, make stop-node doesn't error if the node's not
-    %% running.
-    ok = make_cmd("stop-node", "", State),
+handle_cast(stop, State = #state { name = Name }) ->
+    pong = net_adm:ping(Name),
+    ok = make_cmd("stop-node", State),
     {noreply, State};
 handle_cast({start_with_config, Config}, State = #state { name_str = NameStr }) ->
-    ok = store_external(NameStr, Config),
+    ok = store_external_cluster_config(NameStr, Config),
     ok = make_bg_cmd("run", "-noinput -rabbitmq_clusterer config \\\\\\\"" ++
                          external_config_file(NameStr) ++ "\\\\\\\"",
                      State),
     {noreply, State};
 handle_cast({apply_config, Config}, State = #state { name     = Name,
                                                      name_str = NameStr }) ->
-    case net_adm:ping(Name) of
-        pong ->
-            ok = store_external(NameStr, Config),
-            ok = ctl("eval 'rabbit_clusterer:apply_config(\"" ++
-                         external_config_file(NameStr) ++ "\").'", State),
-            {noreply, State};
-        pang ->
-            handle_cast({start_with_config, Config}, State)
-    end;
+    pong = net_adm:ping(Name),
+    ok = store_external_cluster_config(NameStr, Config),
+    ok = ctl("eval 'rabbit_clusterer:apply_config(\"" ++
+                 external_config_file(NameStr) ++ "\").'", State),
+    {noreply, State};
+handle_cast({stable_state, Ref, From}, State = #state { name = Name }) ->
+    Result =
+        try
+            case rabbit_clusterer_coordinator:request_status(Name) of
+                preboot                      -> false;
+                {_Config, {transitioner, _}} -> false;
+                {_Config, booting}           -> false;
+                { Config, ready}             -> {ready,
+                                                 convert(Config)};
+                { Config, pending_shutdown}  -> {pending_shutdown,
+                                                 convert(Config)}
+            end
+        catch
+            exit:{R, _}      when ?IS_NODE_OFF(R) -> off;
+            exit:{{R, _}, _} when ?IS_NODE_OFF(R) -> off;
+            _Class:_Reason                        -> false
+        end,
+    From ! {stable_state, Ref, Name, Result},
+    {noreply, State};
 handle_cast(Msg, State) ->
     {stop, {unhandled_cast, Msg}, State}.
 
@@ -95,6 +117,20 @@ terminate(_Reason, _State) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+convert(ClustererConfig) ->
+    Version = rabbit_clusterer_config:version(ClustererConfig),
+    NodesNames = rabbit_clusterer_config:nodenames(ClustererConfig),
+    DiscNodeNames = rabbit_clusterer_config:disc_nodenames(ClustererConfig),
+    RamNodeNames = NodesNames -- DiscNodeNames,
+    Gospel = rabbit_clusterer_config:gospel(ClustererConfig),
+    ShutdownTimeout = rabbit_clusterer_config:shutdown_timeout(ClustererConfig),
+    #config { version          = Version,
+              nodes            = orddict:from_list(
+                                   [{Name, disc} || Name <- DiscNodeNames] ++
+                                       [{Name, ram} || Name <- RamNodeNames]),
+              gospel           = Gospel,
+              shutdown_timeout = ShutdownTimeout }.
 
 makefile_dir() ->
     filename:join(filename:dirname(code:which(rabbit)), "..").
@@ -119,14 +155,12 @@ ctl(Action, #state { name_str = NameStr }) ->
     "0" = LastLine, %% ASSERTION
     ok.
 
-make_cmd(Action, StartArgs, #state { name_str = NameStr, port = Port }) ->
+make_cmd(Action, #state { name_str = NameStr, port = Port }) ->
     Cmd = lists:flatten(["RABBITMQ_NODENAME=",
                          NameStr,
                          " RABBITMQ_NODE_PORT=",
                          Port,
-                         " RABBITMQ_SERVER_START_ARGS=\"",
-                         StartArgs,
-                         "\" make -C ",
+                         " make -C ",
                          makefile_dir(),
                          " ",
                          Action,
@@ -159,7 +193,7 @@ delete_internal_cluster_config(#state { name_str = NameStr }) ->
         Err             -> Err
     end.
 
-store_external(NameStr, Config) when is_list(NameStr) ->
+store_external_cluster_config(NameStr, Config) when is_list(NameStr) ->
     ok = rabbit_file:write_term_file(external_config_file(NameStr),
                                      [to_proplist(Config)]).
 

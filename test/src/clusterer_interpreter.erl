@@ -58,15 +58,40 @@ assert_divergence_avoidance(Pred, Achi) ->
 
 observe_stable_state(Test = #test { nodes = Nodes }) ->
     Pids = [Pid || #node { pid = Pid } <- orddict:to_list(Nodes)],
-    case clusterer_node:all_stable(Pids) of
+    case clusterer_node:observe_stable_state(Pids) of
         not_stable  -> ?SLEEP,
                        observe_stable_state(Test);
-        {stable, S} -> Observed = clusterer_node:observe_state(Pids),
-                       case clusterer_node:all_stable(Pids) of
-                           {stable, S} -> S;
+        {stable, S} -> case clusterer_node:all_stable(Pids) of
+                           {stable, S} -> S; %% No one has changed, all good.
                            _           -> ?SLEEP,
                                           observe_stable_state(Test)
                        end
+    end.
+
+compare_state(#test { nodes         = Nodes,
+                      active_config = AConfig }, StableState) ->
+    case {orddict:fetch_keys(Nodes), orddict:fetch_keys(Nodes)} of
+        {Eq, Eq} ->
+            orddict:fold(
+              fun (_Name, _Node, {error, _} = Err) ->
+                      Err;
+                  (Name, Node = #node { name = Name, state = State }, Acc) ->
+                      Observed = orddict:fetch(Name, StableState),
+                      case {State, Observed} of
+                          {off, off} ->
+                              orddict:store(Name, Node, Acc);
+                          {{pending_shutdown, _}, off} ->
+                              orddict:store(Name, Node #node { state = off }, Acc);
+                          {{pending_shutdown, _}, {pending_shutdown, AConfig}} ->
+                              orddict:store(Name, Node, Acc);
+                          {ready, {ready, AConfig}} ->
+                              orddict:store(Name, Node, Acc);
+                          {_, _} = DivergenceSt ->
+                              {error, {node_state_divergence, DivergenceSt}}
+                      end
+              end, orddict:new(), Nodes);
+        {_, _} = DivergenceNodes ->
+            {error, {nodes_divergence, DivergenceNodes}}
     end.
 
 %% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<

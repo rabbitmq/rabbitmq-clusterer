@@ -3,8 +3,9 @@
 -export([load/2, load/1, store_internal/2, to_proplist/2,
          transfer_node_ids/2, update_node_id/4, add_node_ids/3, add_node_id/4,
          compare/2, is_compatible/2,
-         contains_node/2, is_singleton/2, nodenames/1, disc_nodenames/1,
-         node_type/2, node_id/2, gospel/1, shutdown_timeout/1]).
+         contains_node/2, is_singleton/2, version/1, nodenames/1,
+         disc_nodenames/1, node_type/2, node_id/2, gospel/1,
+         shutdown_timeout/1]).
 
 -record(config, { version,
                   nodes,
@@ -354,6 +355,8 @@ contains_node(Node, #config { nodes = Nodes }) -> orddict:is_key(Node, Nodes).
 
 is_singleton( Node, #config { nodes = [{Node, disc}] }) -> true;
 is_singleton(_Node, _Config)                            -> false.
+
+version(#config { version = Version }) -> Version.
 
 nodenames(#config { nodes = Nodes }) -> orddict:fetch_keys(Nodes).
 
