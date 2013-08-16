@@ -28,16 +28,21 @@ test(Host, Seed) ->
     Program = clusterer_program:generate_program(State),
     case starts_nodes(Program) of
         true ->
+            io:format("Starting interesting program number ~p:~n~p~n",
+                      [Seed, Program]),
             {Program, clusterer_interpreter:run_program(Program, State)};
         false ->
             uninteresting
     end.
 
 
-starts_nodes([]) ->
-    false;
-starts_nodes([#step { modify_node_instrs = Instrs } | Steps]) ->
-    case [true || {start_node_with_config, _, _} <- Instrs] of
-        [] -> starts_nodes(Steps);
-        _  -> true
+starts_nodes(Program) ->
+    starts_nodes(Program, orddict:new()).
+
+starts_nodes([], Names) ->
+    length(lists:usort(lists:flatten(Names))) > 1;
+starts_nodes([#step { modify_node_instrs = Instrs } | Steps], Names) ->
+    case [Name || {start_node_with_config, Name, _} <- Instrs] of
+        []     -> starts_nodes(Steps, Names);
+        Names1 -> starts_nodes(Steps, [Names1 | Names])
     end.

@@ -97,7 +97,7 @@ compare_state(Test = #test { nodes         = Nodes,
                   end, orddict:new(), Nodes),
             case Result of
                 {error, _} = Err -> Err;
-                Nodes1           -> {ok, Test #test { nodes = Nodes }}
+                Nodes1           -> {ok, Test #test { nodes = Nodes1 }}
             end;
         {_, _} = DivergenceNodes ->
             {error, {nodes_divergence, DivergenceNodes}}
@@ -143,6 +143,8 @@ run_modify_node_instr({apply_config_to_node, Name, VConfig},
         off ->
             ok = clusterer_node:start_with_config(Pid, VConfig);
         {pending_shutdown, _} ->
+            ok = clusterer_node:apply_config(Pid, VConfig);
+        ready ->
             ok = clusterer_node:apply_config(Pid, VConfig)
     end,
     clusterer_utils:make_config_active(
@@ -155,6 +157,9 @@ run_modify_node_instr({stop_node, Name}, Test = #test { nodes = Nodes }) ->
         off ->
             Test;
         {pending_shutdown, _} ->
+            ok = clusterer_node:stop(Pid),
+            clusterer_utils:store_node(Node #node { state = off }, Test);
+        ready ->
             ok = clusterer_node:stop(Pid),
             clusterer_utils:store_node(Node #node { state = off }, Test)
     end.
