@@ -482,8 +482,8 @@ process_transitioner_response({SuccessOrShutdown, ConfigNew},
     case SuccessOrShutdown of
         success  -> %% Wait for the ready transition before updating monitors
                     set_status(booting, State1);
-        shutdown -> schedule_shutdown(
-                      update_monitoring(set_status(pending_shutdown, State1)))
+        shutdown -> stop_monitoring(
+                      schedule_shutdown(set_status(pending_shutdown, State1)))
     end;
 process_transitioner_response({config_changed, ConfigNew}, State) ->
     %% begin_transition relies on unmerged configs, so don't merge
@@ -536,32 +536,22 @@ reschedule_shutdown(State = #state { status             = pending_shutdown,
 reschedule_shutdown(State) ->
     State.
 
-update_monitoring(State = #state { status      = Status,
-                                   config      = ConfigNew,
-                                   nodes       = NodesOld,
-                                   alive_mrefs = AliveOld })
-  when Status =:= ready orelse Status =:= pending_shutdown ->
+update_monitoring(State = #state { config = ConfigNew,
+                                   nodes  = NodesOld }) ->
+    State1 = stop_monitoring(State),
+    NodesNew = rabbit_clusterer_config:nodenames(ConfigNew) -- [node()],
+    ok = send_new_config(ConfigNew, NodesNew -- NodesOld),
+    AliveNew = [monitor(process, {?SERVER, N}) || N <- NodesNew],
+    State1 #state { nodes       = NodesNew,
+                    alive_mrefs = AliveNew}.
+
+stop_monitoring(State = #state { config      = ConfigNew,
+                                 nodes       = NodesOld,
+                                 alive_mrefs = AliveOld }) ->
     ok = send_new_config(ConfigNew, NodesOld),
     [demonitor(MRef) || MRef <- AliveOld],
-    {NodeNamesNew, AliveNew} =
-        case Status of
-            ready ->
-                NodeNamesNew1 =
-                    rabbit_clusterer_config:nodenames(ConfigNew) -- [node()],
-                ok = send_new_config(ConfigNew, NodeNamesNew1 -- NodesOld),
-                {NodeNamesNew1,
-                 [monitor(process, {?SERVER, N}) || N <- NodeNamesNew1]};
-            pending_shutdown ->
-                %% If we're pending_shutdown it means we're not in
-                %% this config. Thus we don't care about who is in
-                %% this config, so don't monitor them. They won't be
-                %% monitoring us. Even more importantly, don't send
-                %% them any new config we get if we get pulled into
-                %% some other cluster.
-                {[], []}
-        end,
-    State #state { nodes          = NodeNamesNew,
-                   alive_mrefs    = AliveNew,
+    State #state { nodes          = [],
+                   alive_mrefs    = [],
                    dead           = [],
                    poke_timer_ref = undefined }.
 
