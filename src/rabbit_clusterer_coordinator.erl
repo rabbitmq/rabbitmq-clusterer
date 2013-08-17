@@ -71,7 +71,6 @@ init([]) -> {ok, #state { status             = preboot,
                           booted             = false
                         }}.
 
-
 %%----------------
 %% Call
 %%----------------
@@ -182,10 +181,10 @@ handle_call({apply_config, _Config}, _From,
 handle_call(Msg, From, State) ->
     {stop, {unhandled_call, Msg, From}, State}.
 
-
 %%----------------
 %% Cast
 %%----------------
+
 handle_cast(begin_coordination, State = #state { status  = preboot,
                                                  node_id = NodeID,
                                                  config  = Config }) ->
@@ -301,10 +300,10 @@ handle_cast({unlock, Locker}, State = #state { comms = Comms }) ->
 handle_cast(Msg, State) ->
     {stop, {unhandled_cast, Msg}, State}.
 
-
 %%----------------
 %% Info
 %%----------------
+
 handle_info({shutdown, Ref},
             State = #state { status             = pending_shutdown,
                              transitioner_state = {shutdown, Ref} }) ->
@@ -356,11 +355,13 @@ handle_info(poke_the_dead, State) ->
 handle_info(Msg, State) ->
     {stop, {unhandled_info, Msg}, State}.
 
+%%----------------
+%% Rest
+%%----------------
 
 terminate(_Reason, _State) -> ok.
 
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
-
 
 %%----------------------------------------------------------------------------
 %% Status changes state machine
@@ -499,7 +500,6 @@ process_transitioner_response({invalid_config, Config},
                           [rabbit_clusterer_config:to_proplist(
                              NodeID, Config)]),
     set_status(shutdown, set_status(pending_shutdown, State1)).
-
 
 fresh_comms(State) ->
     State1 = stop_comms(State),
