@@ -272,7 +272,7 @@ handle_cast({new_config, ConfigRemote, Node},
 handle_cast(rabbit_booted, State = #state { status = booting }) ->
     %% Note that we don't allow any transition to start whilst we're
     %% booting so it should be safe to assert we can only receive
-    %% ready_to_cluster when in booting.
+    %% rabbit_booted when in booting.
     {noreply, set_status(ready, State)};
 handle_cast(rabbit_booted, State = #state { status = preboot }) ->
     %% Very likely they forgot to edit the rabbit-server
