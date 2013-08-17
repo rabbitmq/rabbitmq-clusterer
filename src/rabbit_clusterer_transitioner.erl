@@ -261,8 +261,6 @@ maybe_join(BadNodes, StatusDict, State = #state { config = Config }) ->
     %%    booting
     %% - ready:
     %%    Clusterer is happy and enough of rabbit has booted
-    %% - pending_shutdown:
-    %%    Clusterer is about to exit
     Statuses   = dict:fetch_keys(StatusDict),
     ReadyNodes = lists:member(ready, Statuses),
     AllJoining = [{transitioner, join}] =:= Statuses,
