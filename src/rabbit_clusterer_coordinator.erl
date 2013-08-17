@@ -537,7 +537,7 @@ reschedule_shutdown(State) ->
 %%----------------------------------------------------------------------------
 
 stop_rabbit() ->
-    error_logger:info_msg("Clusterer stopping Rabbit pending shutdown.~n"),
+    error_logger:info_msg("Clusterer stopping Rabbit.~n"),
     ok = rabbit:await_startup(),
     ok = rabbit_clusterer_utils:stop_rabbit(),
     ok = rabbit_clusterer_utils:stop_mnesia(),
