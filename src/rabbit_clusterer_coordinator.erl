@@ -493,7 +493,6 @@ stop_comms(State = #state { comms = Token }) ->
     ok = rabbit_clusterer_comms:stop(Token),
     State #state { comms = undefined }.
 
-
 %%----------------------------------------------------------------------------
 %% Helpers
 %%----------------------------------------------------------------------------
