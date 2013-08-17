@@ -504,6 +504,7 @@ stop_rabbit() ->
     ok = rabbit_clusterer_utils:stop_rabbit(),
     ok = rabbit_clusterer_utils:stop_mnesia(),
     ok.
+
 update_monitoring(State = #state { config = ConfigNew,
                                    nodes  = NodesOld }) ->
     State1 = stop_monitoring(State),
