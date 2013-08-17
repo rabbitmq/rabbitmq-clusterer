@@ -376,10 +376,7 @@ set_status(NewStatus, State = #state { status = Status })
 set_status(pending_shutdown, State = #state { status = ready }) ->
     %% Even though we think we're ready, there might still be some
     %% rabbit boot actions going on...
-    error_logger:info_msg("Clusterer stopping Rabbit pending shutdown.~n"),
-    ok = rabbit:await_startup(),
-    ok = rabbit_clusterer_utils:stop_rabbit(),
-    ok = rabbit_clusterer_utils:stop_mnesia(),
+    ok = stop_rabbit(),
     State #state { status = pending_shutdown };
 set_status(pending_shutdown, State = #state { status = Status })
   when Status =/= booting ->
@@ -418,23 +415,26 @@ begin_transition(NewConfig, State = #state { config = Config }) ->
                    NewConfig, State)
     end.
 
-begin_transition(false, NewConfig, State = #state { status = ready }) ->
-    %% Must use the un-merged config here otherwise we risk getting a
-    %% different answer from is_compatible when we come back here
-    %% after reboot.
-    begin_transition(NewConfig, set_status(pending_shutdown, State));
-begin_transition(true, NewConfig, State = #state { status  = ready,
-                                                   node_id = NodeID,
-                                                   config  = Config }) ->
+begin_transition(true,     NewConfig, State = #state { status  = ready,
+                                                       node_id = NodeID,
+                                                       config  = Config }) ->
     NewConfig1 = rabbit_clusterer_config:transfer_node_ids(Config, NewConfig),
     ok = rabbit_clusterer_config:store_internal(NodeID, NewConfig1),
     error_logger:info_msg(
       "Clusterer seemlessly transitioned to new configuration:~n~p~n",
       [rabbit_clusterer_config:to_proplist(NodeID, NewConfig1)]),
     update_monitoring(State #state { config = NewConfig1 });
-begin_transition(Compatible, NewConfig, State = #state { node_id = NodeID,
-                                                         config  = Config,
-                                                         nodes   = Nodes }) ->
+begin_transition(false,    NewConfig, State = #state { status = ready }) ->
+    ok = stop_rabbit(),
+    join_or_rejoin(join,   NewConfig, State);
+begin_transition(true,     NewConfig, State) ->
+    join_or_rejoin(rejoin, NewConfig, State);
+begin_transition(false,    NewConfig, State) ->
+    join_or_rejoin(join,   NewConfig, State).
+
+join_or_rejoin(TKind, NewConfig, State = #state { node_id = NodeID,
+                                                  config  = Config,
+                                                  nodes   = Nodes }) ->
     NewConfig1 = rabbit_clusterer_config:transfer_node_ids(Config, NewConfig),
     ok = send_new_config(NewConfig1, Nodes),
     %% Wipe out alive_mrefs and dead so that if we get DOWN's we don't
@@ -442,10 +442,6 @@ begin_transition(Compatible, NewConfig, State = #state { node_id = NodeID,
     {Comms, State1} = fresh_comms(State #state { alive_mrefs = [],
                                                  dead        = [],
                                                  nodes       = [] }),
-    TKind = case Compatible of
-                true  -> rejoin;
-                false -> join
-            end,
     process_transitioner_response(
       rabbit_clusterer_transitioner:init(TKind, NodeID, NewConfig1, Comms),
       set_status({transitioner, TKind}, State1)).
@@ -506,6 +502,17 @@ stop_comms(State = #state { comms = Token }) ->
     ok = rabbit_clusterer_comms:stop(Token),
     State #state { comms = undefined }.
 
+
+%%----------------------------------------------------------------------------
+%% Helpers
+%%----------------------------------------------------------------------------
+
+stop_rabbit() ->
+    error_logger:info_msg("Clusterer stopping Rabbit pending shutdown.~n"),
+    ok = rabbit:await_startup(),
+    ok = rabbit_clusterer_utils:stop_rabbit(),
+    ok = rabbit_clusterer_utils:stop_mnesia(),
+    ok.
 update_monitoring(State = #state { config = ConfigNew,
                                    nodes  = NodesOld }) ->
     State1 = stop_monitoring(State),
