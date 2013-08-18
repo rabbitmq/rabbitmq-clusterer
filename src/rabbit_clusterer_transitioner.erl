@@ -127,8 +127,14 @@ event({comms, {Replies, BadNodes}}, State = #state { kind    = Kind,
                     %% reality they're likely to receive lots of the
                     %% same update from everyone else, but meh,
                     %% they'll just have to cope.
-                    update_remote_nodes(OlderThanUs, Youngest,
-                                        State #state { config = Youngest });
+                    %%
+                    %% We deliberately do this cast out of Comms to
+                    %% preserve ordering of messages.
+                    Msg = rabbit_clusterer_coordinator:template_new_config(
+                            Youngest),
+                    ok = rabbit_clusterer_comms:multi_cast(
+                           OlderThanUs, Msg, State #state.comms),
+                    delayed_request_status(State #state { config = Youngest });
                 younger -> %% cannot be older or invalid
                     {config_changed, Youngest}
             end
@@ -422,14 +428,6 @@ delayed_request_status(State) ->
     Ref = make_ref(),
     {sleep, 1000, {delayed_request_status, Ref},
      State #state { status = {delayed_request_status, Ref} }}.
-
-update_remote_nodes(Nodes, Config, State = #state { comms = Comms }) ->
-    %% Assumption here is Nodes does not contain node(). We
-    %% deliberately do this cast out of Comms to preserve ordering of
-    %% messages.
-    Msg = rabbit_clusterer_coordinator:template_new_config(Config),
-    ok = rabbit_clusterer_comms:multi_cast(Nodes, Msg, Comms),
-    delayed_request_status(State).
 
 %% The input is a k/v list of nodes and their config+status tuples (or
 %% the atom 'preboot' if the node is in the process of starting up),
