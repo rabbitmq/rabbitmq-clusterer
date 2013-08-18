@@ -75,19 +75,9 @@ init([]) -> {ok, #state { status             = preboot,
 %% Call
 %%----------------
 
-%% What is the difference between request_status and new_config?
 %% request_status requires a response and is only used by the
 %% transitioners to perform coordination when joining or rejoining a
-%% cluster. new_config is perhaps misnamed, but is only sent when a
-%% config has been achieved (ready). new_config is used to update
-%% nodes that we come across through some means that we think they're
-%% running an old config and should be updated to run a newer config.
-%% It is also sent periodically to any missing nodes in the cluster to
-%% make sure that should they appear they will be informed of the
-%% cluster config we expect them to take part in.
-%%
-%% Could they both be combined? Probably, but it would likely make the
-%% attached logic much hairier.
+%% cluster.
 handle_call({request_status, _Node, _NodeID}, _From,
             State = #state { status = preboot }) ->
     %% If status = preboot then we have the situation that a remote
@@ -204,6 +194,12 @@ handle_cast({comms, _Comms, _Result}, State) ->
     %% comms pid.
     {noreply, State};
 
+%% new_config is only sent when a config has been achieved (ready). It
+%% is used to update nodes that we come across through some means that
+%% we think they're running an old config and should be updated to run
+%% a newer config.  It is also sent periodically to any missing nodes
+%% in the cluster to make sure that should they appear they will be
+%% informed of the cluster config we expect them to take part in.
 handle_cast({new_config, _ConfigRemote, Node},
             State = #state { status = preboot,
                              nodes  = Nodes }) ->
