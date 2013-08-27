@@ -30,7 +30,12 @@ test(Host, Seed) ->
         true ->
             io:format("Starting interesting program number ~p:~n~p~n~n",
                       [Seed, Program]),
-            {Program, clusterer_interpreter:run_program(Program, State)};
+            case clusterer_interpreter:run_program(Program, State) of
+                ok -> {Program, success};
+                E  -> io:format("Error encountered with program~n~p~n~p~n~n",
+                                [Program, E]),
+                      {Program, E}
+            end;
         false ->
             uninteresting
     end.

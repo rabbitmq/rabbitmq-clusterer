@@ -62,7 +62,7 @@ init([Name, Port]) ->
     ok = delete_internal_cluster_config(State),
     {ok, State}.
 
-handle_call(exit, From, State = #state { name = Name }) ->
+handle_call(exit, _From, State = #state { name = Name }) ->
     ok = make_cmd("stop-node", State),
     ok = await_death(Name),
     ok = make_cmd("cleandb", State),
