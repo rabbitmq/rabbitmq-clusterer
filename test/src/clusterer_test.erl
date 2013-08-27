@@ -51,18 +51,16 @@ new_state(Host, Seed) ->
 
 filter_program(Program) ->
     %% Eventually there'll be a more sophisticated set of filters here.
-    case starts_nodes(Program) of
+    case two_ready(Program) of
         true  -> run;
         false -> skip
     end.
 
-starts_nodes(Program) ->
-    starts_nodes(Program, orddict:new()).
-
-starts_nodes([], Names) ->
-    length(lists:usort(lists:flatten(Names))) > 1;
-starts_nodes([#step { modify_node_instrs = Instrs } | Steps], Names) ->
-    case [Name || {start_node_with_config, Name, _} <- Instrs] of
-        []     -> starts_nodes(Steps, Names);
-        Names1 -> starts_nodes(Steps, [Names1 | Names])
+two_ready([]) ->
+    false;
+two_ready([#step { final_state = #test { nodes = Nodes } } | Steps]) ->
+    case length([true || {_Name, #node { state = ready }}
+                             <- orddict:to_list(Nodes)]) > 1 of
+        true  -> true;
+        false -> two_ready(Steps)
     end.
