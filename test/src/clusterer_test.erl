@@ -7,32 +7,37 @@
 %% NB Limit is exclusive, not inclusive.
 test(Limit) when Limit > 0 ->
     case node() of
-        'nonode@nohost' -> {error, must_be_distributed_node};
-        _               -> test_sequence(0, Limit)
+        'nonode@nohost' ->
+            {error, must_be_distributed_node};
+        Node ->
+            [$@|Host] = lists:dropwhile(
+                          fun (C) -> C =/= $@ end, atom_to_list(Node)),
+            test_sequence(Host, Limit, 0, 0)
     end.
 
-test_sequence(Limit, Limit) ->
-    io:format("No programs between 0 and ~p failed.~n", [Limit]),
+test_sequence(_Host, Limit, Limit, RanCount) ->
+    io:format("~nNo programs between 0 and ~p failed.~n"
+              "~p programs were ran and passed~n", [Limit, RanCount]),
     ok;
-test_sequence(N, Limit) ->
-    case test_program(N) of
-        ok  -> test_sequence(N+1, Limit);
-        Err -> io:format("Error encountered with program ~p:~n~p~n",
-                         [N, Err]),
-               Err
+test_sequence(Host, Limit, N, RanCount) ->
+    case test_program(Host, N) of
+        skip -> test_sequence(Host, Limit, N+1, RanCount);
+        ok   -> test_sequence(Host, Limit, N+1, RanCount+1);
+        Err  -> io:format("~nError encountered with program ~p:~n~p~n",
+                          [N, Err]),
+                Err
     end.
 
-test_program(Seed) ->
-    State = new_state(Seed),
+test_program(Host, Seed) ->
+    State = new_state(Host, Seed),
     Program = clusterer_program:generate_program(State),
     case filter_program(Program) of
-        skip -> ok;
+        skip -> skip;
         run  -> io:format("~p...", [Seed]),
                 clusterer_interpreter:run_program(Program, State)
     end.
 
-new_state(Seed) ->
-    [$@|Host] = lists:dropwhile(fun (C) -> C =/= $@ end, atom_to_list(node())),
+new_state(Host, Seed) ->
     #test { seed          = Seed,
             namer         = {0, Host},
             nodes         = orddict:new(),
