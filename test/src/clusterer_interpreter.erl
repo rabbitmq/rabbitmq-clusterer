@@ -14,10 +14,14 @@ run_program([Step | Steps], InitialState) ->
     PredictedState = Step #step.final_state,
     AchievedState = (run_step(Step #step { final_state = InitialState })
                     ) #step.final_state,
-    ok = assert_divergence_avoidance(PredictedState, AchievedState),
-    case compare_state(AchievedState, observe_stable_state(AchievedState)) of
-        {ok, ObservedState} -> run_program(Steps, ObservedState);
-        E                   -> E
+    case detect_divergence_avoidance(PredictedState, AchievedState) of
+        ok ->
+            case compare_state(AchievedState,
+                               observe_stable_state(AchievedState)) of
+                {ok, ObservedState} -> run_program(Steps, ObservedState);
+                E1                  -> E1
+            end;
+        E2 -> E2
     end.
 
 run_step(Step) ->
@@ -25,7 +29,7 @@ run_step(Step) ->
 
 %% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<
 
-assert_divergence_avoidance(#test { nodes         = NodesPred,
+detect_divergence_avoidance(#test { nodes         = NodesPred,
                                     config        = Config,
                                     valid_config  = VConfig,
                                     active_config = AConfig },
@@ -55,7 +59,7 @@ assert_divergence_avoidance(#test { nodes         = NodesPred,
         {Pr, Ac} ->
             {error, {node_divergence, Pr, Ac}}
     end;
-assert_divergence_avoidance(Pred, Achi) ->
+detect_divergence_avoidance(Pred, Achi) ->
     {error, {config_divergence, Pred, Achi}}.
 
 observe_stable_state(Test = #test { nodes = Nodes }) ->
