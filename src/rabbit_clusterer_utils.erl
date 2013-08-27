@@ -1,7 +1,6 @@
 -module(rabbit_clusterer_utils).
 
 -export([stop_mnesia/0,
-         ensure_start_mnesia/0,
          stop_rabbit/0,
          start_rabbit_async/0,
          boot_rabbit_async/0,
@@ -44,7 +43,6 @@ make_mnesia_singleton(true) ->
     ok = rabbit_file:recursive_delete(
            filelib:wildcard(rabbit_mnesia:dir() ++ "/*")),
     ok = rabbit_node_monitor:reset_cluster_status(),
-    ok = ensure_start_mnesia(),
     ok;
 make_mnesia_singleton(false) ->
     %% Note that this is wrong: in this case we actually want to
@@ -77,6 +75,7 @@ eliminate_mnesia_dependencies(NodesToDelete) ->
     %% usefully idempotent.
     [{atomic,ok} = mnesia:del_table_copy(schema, N) || N <- NodesToDelete],
     ok = rabbit_node_monitor:reset_cluster_status(),
+    ok = stop_mnesia(),
     ok.
 
 configure_cluster(Nodes, MyNodeType) ->

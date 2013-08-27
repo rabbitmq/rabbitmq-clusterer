@@ -396,7 +396,6 @@ set_status(booting, State = #state { status  = {transitioner, _},
     error_logger:info_msg(
       "Clusterer booting Rabbit into cluster configuration:~n~p~n",
       [rabbit_clusterer_config:to_proplist(NodeID, Config)]),
-    ok = rabbit_clusterer_utils:ensure_start_mnesia(),
     case Booted of
         true  -> ok = rabbit_clusterer_utils:start_rabbit_async();
         false -> ok = rabbit_clusterer_utils:boot_rabbit_async()
