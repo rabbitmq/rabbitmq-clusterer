@@ -147,19 +147,16 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 await_death(Name) ->
-    case net_adm:ping(Name) of
-        pong -> timer:sleep(1000),
-                await_death(Name);
-        pang -> timer:sleep(500),
-                ok
-    end.
+    await(Name, pong, pang).
 
 await_life(Name) ->
+    await(Name, pang, pong).
+
+await(Name, Again, Return) ->
     case net_adm:ping(Name) of
-        pang -> timer:sleep(1000),
-                await_life(Name);
-        pong -> timer:sleep(500),
-                ok
+        Again  -> timer:sleep(1000),
+                  await(Name, Again, Return);
+        Return -> ok
     end.
 
 convert(ClustererConfig) ->
