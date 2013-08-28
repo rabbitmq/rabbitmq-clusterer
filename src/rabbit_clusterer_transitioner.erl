@@ -420,7 +420,7 @@ request_status(State = #state { node_id = NodeID,
 delayed_request_status(State) ->
     %% TODO: work out some sensible timeout value
     Ref = make_ref(),
-    {sleep, 1000, {delayed_request_status, Ref},
+    {sleep, 500, {delayed_request_status, Ref},
      State #state { status = {delayed_request_status, Ref} }}.
 
 update_remote_nodes(Nodes, Config, State = #state { comms = Comms }) ->
@@ -429,7 +429,7 @@ update_remote_nodes(Nodes, Config, State = #state { comms = Comms }) ->
     %% messages.
     Msg = rabbit_clusterer_coordinator:template_new_config(Config),
     ok = rabbit_clusterer_comms:multi_cast(Nodes, Msg, Comms),
-    delayed_request_status(State).
+    request_status(State).
 
 %% The input is a k/v list of nodes and their config+status tuples (or
 %% the atom 'preboot' if the node is in the process of starting up),
