@@ -13,6 +13,7 @@
 -record(state, { name, name_str, port }).
 
 -define(IS_NODE_OFF(R), R =:= noconnection; R =:= nodedown; R =:= noproc).
+-define(SLEEP, timer:sleep(250)).
 
 %% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<
 
@@ -154,7 +155,7 @@ await_life(Name) ->
 
 await(Name, Again, Return) ->
     case net_adm:ping(Name) of
-        Again  -> timer:sleep(1000),
+        Again  -> ?SLEEP,
                   await(Name, Again, Return);
         Return -> ok
     end.

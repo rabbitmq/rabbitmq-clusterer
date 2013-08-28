@@ -74,8 +74,7 @@ observe_stable_state(Test = #test { nodes = Nodes }) ->
         {stable, S} -> ?SLEEP, %% always sleep, just to allow some time
                        case clusterer_node:observe_stable_state(Pids) of
                            {stable, S} -> S; %% No one has changed, all good.
-                           _           -> ?SLEEP,
-                                          observe_stable_state(Test)
+                           _           -> observe_stable_state(Test)
                        end;
         _           -> ?SLEEP,
                        observe_stable_state(Test)
