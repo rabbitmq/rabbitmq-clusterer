@@ -1,11 +1,14 @@
 -module(clusterer_test).
 
--export([test/1, test_program/1]).
+-export([test/1, test/2, test_program/1]).
 
 -include("clusterer_test.hrl").
 
 %% NB Limit is exclusive, not inclusive.
 test(Limit) when Limit > 0 ->
+    test(0, Limit).
+
+test(From, To) when To > From ->
     case node() of
         'nonode@nohost' ->
             {error, must_be_distributed_node};
@@ -13,12 +16,11 @@ test(Limit) when Limit > 0 ->
             [$@|Host] = lists:dropwhile(
                           fun (C) -> C =/= $@ end, atom_to_list(Node)),
             io:format("Passed programs: ["),
-            test_sequence(Host, Limit, 0, 0)
+            test_sequence(Host, To, From, 0)
     end.
 
 test_sequence(_Host, Limit, Limit, RanCount) ->
-    io:format("].~nNo programs between 0 and ~p failed.~n"
-              "~p programs were ran and passed~n", [Limit, RanCount]),
+    io:format("].~n~p programs were ran and passed~n", [RanCount]),
     ok;
 test_sequence(Host, Limit, N, RanCount) ->
     case test_program(Host, N) of
