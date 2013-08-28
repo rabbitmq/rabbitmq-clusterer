@@ -196,12 +196,12 @@ handle_cast({comms, _Comms, _Result}, State) ->
     %% comms pid.
     {noreply, State};
 
-%% new_config is only sent when a config has been achieved (ready). It
-%% is used to update nodes that we come across through some means that
-%% we think they're running an old config and should be updated to run
-%% a newer config.  It is also sent periodically to any missing nodes
-%% in the cluster to make sure that should they appear they will be
-%% informed of the cluster config we expect them to take part in.
+%% new_config is sent to update nodes that we come across through some
+%% means that we think they're running an old config and should be
+%% updated to run a newer config. It is also sent periodically to any
+%% missing nodes in the cluster to make sure that should they appear
+%% they will be informed of the cluster config we expect them to take
+%% part in.
 handle_cast({new_config, _ConfigRemote, Node},
             State = #state { status = preboot,
                              nodes  = Nodes }) ->
