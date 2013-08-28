@@ -12,17 +12,18 @@ test(Limit) when Limit > 0 ->
         Node ->
             [$@|Host] = lists:dropwhile(
                           fun (C) -> C =/= $@ end, atom_to_list(Node)),
+            io:format("Passed programs: ["),
             test_sequence(Host, Limit, 0, 0)
     end.
 
 test_sequence(_Host, Limit, Limit, RanCount) ->
-    io:format("~nNo programs between 0 and ~p failed.~n"
+    io:format("].~nNo programs between 0 and ~p failed.~n"
               "~p programs were ran and passed~n", [Limit, RanCount]),
     ok;
 test_sequence(Host, Limit, N, RanCount) ->
     case test_program(Host, N) of
         skip           -> test_sequence(Host, Limit, N+1, RanCount);
-        {_Program, ok} -> io:format("...~p", [N]),
+        {_Program, ok} -> io:format("~p,", [N]),
                           test_sequence(Host, Limit, N+1, RanCount+1);
         {Program, Err} -> io:format("~nError encountered with program ~p:"
                                     "~n~n~p~n~n~p~n", [N, Program, Err]),

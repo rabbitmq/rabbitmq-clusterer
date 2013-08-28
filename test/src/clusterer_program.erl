@@ -33,8 +33,8 @@ generate_modify_node_instructions(
   Step = #step { final_state = Test = #test { nodes = Nodes } }) ->
     {NodeInstrs, Test1} =
         orddict:fold(
-          fun (_Name, _Node, {_Instrs, TestN = #test { seed = 0 }}) ->
-                  {[], TestN};
+          fun (_Name, _Node, {Instrs, TestN = #test { seed = 0 }}) ->
+                  {Instrs, TestN};
               (Name, Node = #node { name = Name }, {Instrs, TestN}) ->
                   {NodeInstrFun, TestN1} =
                       choose_one_noop2(

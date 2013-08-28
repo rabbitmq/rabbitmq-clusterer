@@ -6,9 +6,8 @@
 
 -define(SLEEP, timer:sleep(500)).
 
-run_program([], #test { nodes = Nodes }) ->
-    [clusterer_node:exit(Pid)
-     || {_Name, #node { pid = Pid }} <- orddict:to_list(Nodes)],
+run_program([], FinalState) ->
+    ok = tidy(FinalState),
     ok;
 run_program([Step | Steps], InitialState) ->
     PredictedState = Step #step.final_state,
@@ -22,11 +21,17 @@ run_program([Step | Steps], InitialState) ->
                 E1                  -> E1
             end;
         {error, E2} ->
+            ok = tidy(AchievedState),
             {error, E2, Step}
     end.
 
 run_step(Step) ->
     run_modify_config(run_existential_node(run_modify_nodes(Step))).
+
+tidy(#test { nodes = Nodes }) ->
+    [clusterer_node:exit(Pid)
+     || {_Name, #node { pid = Pid }} <- orddict:to_list(Nodes)],
+    ok.
 
 %% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<
 
