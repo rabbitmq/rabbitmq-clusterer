@@ -1,7 +1,6 @@
 -module(rabbit_clusterer_utils).
 
 -export([stop_mnesia/0,
-         ensure_start_mnesia/0,
          stop_rabbit/0,
          start_rabbit_async/0,
          boot_rabbit_async/0,
@@ -44,10 +43,21 @@ make_mnesia_singleton(true) ->
     ok = rabbit_file:recursive_delete(
            filelib:wildcard(rabbit_mnesia:dir() ++ "/*")),
     ok = rabbit_node_monitor:reset_cluster_status(),
-    ok = ensure_start_mnesia(),
     ok;
 make_mnesia_singleton(false) ->
-    eliminate_mnesia_dependencies(everyone_else).
+    %% Note that this is wrong: in this case we actually want to
+    %% eliminate everyone who isn't in our cluster - i.e. everyone
+    %% mnesia thinks we're currently clustered with. However, due to
+    %% limitations with del_table_copy (i.e. mnesia must not be
+    %% running on remote node; it must be running on our node), this
+    %% is difficult to orchestrate: it's easiest done by the
+    %% eliminated nodes doing an RPC to us. But there are still cases
+    %% where that may not work out correctly. However, this scenario
+    %% can only occur when a cluster is being split up into other
+    %% clusters. For MVP and this project, we don't consider that a
+    %% use case, so we're going to just ignore this problem for the
+    %% time being.
+    eliminate_mnesia_dependencies([]).
 
 eliminate_mnesia_dependencies(NodesToDelete) ->
     ok = rabbit_mnesia:ensure_mnesia_dir(),
@@ -63,13 +73,9 @@ eliminate_mnesia_dependencies(NodesToDelete) ->
     end,
     %% del_table_copy has to be done after the force_load but is also
     %% usefully idempotent.
-    NodesToDelete1 =
-        case NodesToDelete of
-            everyone_else -> mnesia:system_info(db_nodes) -- [node()];
-            _             -> NodesToDelete
-        end,
-    [{atomic,ok} = mnesia:del_table_copy(schema, N) || N <- NodesToDelete1],
+    [{atomic,ok} = mnesia:del_table_copy(schema, N) || N <- NodesToDelete],
     ok = rabbit_node_monitor:reset_cluster_status(),
+    ok = stop_mnesia(),
     ok.
 
 configure_cluster(Nodes, MyNodeType) ->
