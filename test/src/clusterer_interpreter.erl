@@ -21,7 +21,8 @@ run_program([Step | Steps], InitialState) ->
                 {ok, ObservedState} -> run_program(Steps, ObservedState);
                 E1                  -> E1
             end;
-        E2 -> E2
+        {error, E2} ->
+            {error, E2, Step}
     end.
 
 run_step(Step) ->

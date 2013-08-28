@@ -1,6 +1,6 @@
 -module(clusterer_test).
 
--export([test/1]).
+-export([test/1, test_program/1]).
 
 -include("clusterer_test.hrl").
 
@@ -21,20 +21,24 @@ test_sequence(_Host, Limit, Limit, RanCount) ->
     ok;
 test_sequence(Host, Limit, N, RanCount) ->
     case test_program(Host, N) of
-        skip -> test_sequence(Host, Limit, N+1, RanCount);
-        ok   -> test_sequence(Host, Limit, N+1, RanCount+1);
-        Err  -> io:format("~nError encountered with program ~p:~n~p~n",
-                          [N, Err]),
-                Err
+        skip           -> test_sequence(Host, Limit, N+1, RanCount);
+        {_Program, ok} -> io:format("...~p", [N]),
+                          test_sequence(Host, Limit, N+1, RanCount+1);
+        {Program, Err} -> io:format("~nError encountered with program ~p:"
+                                    "~n~n~p~n~n~p~n", [N, Program, Err]),
+                          Err
     end.
+
+test_program(Seed) ->
+    [$@|Host] = lists:dropwhile(fun (C) -> C =/= $@ end, atom_to_list(node())),
+    test_program(Host, Seed).
 
 test_program(Host, Seed) ->
     State = new_state(Host, Seed),
     Program = clusterer_program:generate_program(State),
     case filter_program(Program) of
         skip -> skip;
-        run  -> io:format("~p...", [Seed]),
-                clusterer_interpreter:run_program(Program, State)
+        run  -> {Program, clusterer_interpreter:run_program(Program, State)}
     end.
 
 new_state(Host, Seed) ->
