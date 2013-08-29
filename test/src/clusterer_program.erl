@@ -33,8 +33,8 @@ generate_modify_node_instructions(
   Step = #step { final_state = Test = #test { nodes = Nodes } }) ->
     {NodeInstrs, Test1} =
         orddict:fold(
-          fun (_Name, _Node, {_Instrs, TestN = #test { seed = 0 }}) ->
-                  {[], TestN};
+          fun (_Name, _Node, {Instrs, TestN = #test { seed = 0 }}) ->
+                  {Instrs, TestN};
               (Name, Node = #node { name = Name }, {Instrs, TestN}) ->
                   {NodeInstrFun, TestN1} =
                       choose_one_noop2(
@@ -262,9 +262,6 @@ generate_name_port(Test = #test { namer = {N, Host} }) ->
 
 noop(Test       ) -> {noop, Test}.
 noop(_Node, Test) -> {noop, Test}.
-
-noops(#test { nodes = Nodes }, Fun) ->
-    lists:duplicate(1 + (orddict:size(Nodes) div 2), Fun).
 
 choose_one_noop1(List, Test) -> choose_one([fun noop/1 | List], Test).
 choose_one_noop2(List, Test) -> choose_one([fun noop/2 | List], Test).

@@ -6,26 +6,36 @@
 
 -define(SLEEP, timer:sleep(500)).
 
-run_program([], #test { nodes = Nodes }) ->
-    [clusterer_node:exit(Pid)
-     || {_Name, #node { pid = Pid }} <- orddict:to_list(Nodes)],
+run_program([], FinalState) ->
+    ok = tidy(FinalState),
     ok;
 run_program([Step | Steps], InitialState) ->
     PredictedState = Step #step.final_state,
     AchievedState = (run_step(Step #step { final_state = InitialState })
                     ) #step.final_state,
-    ok = assert_divergence_avoidance(PredictedState, AchievedState),
-    case compare_state(AchievedState, observe_stable_state(AchievedState)) of
-        {ok, ObservedState} -> run_program(Steps, ObservedState);
-        E                   -> E
+    case detect_divergence_avoidance(PredictedState, AchievedState) of
+        ok ->
+            case compare_state(AchievedState,
+                               observe_stable_state(AchievedState)) of
+                {ok, ObservedState} -> run_program(Steps, ObservedState);
+                E1                  -> E1
+            end;
+        {error, E2} ->
+            ok = tidy(AchievedState),
+            {error, E2, Step}
     end.
 
 run_step(Step) ->
     run_modify_config(run_existential_node(run_modify_nodes(Step))).
 
+tidy(#test { nodes = Nodes }) ->
+    [clusterer_node:exit(Pid)
+     || {_Name, #node { pid = Pid }} <- orddict:to_list(Nodes)],
+    ok.
+
 %% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<
 
-assert_divergence_avoidance(#test { nodes         = NodesPred,
+detect_divergence_avoidance(#test { nodes         = NodesPred,
                                     config        = Config,
                                     valid_config  = VConfig,
                                     active_config = AConfig },
@@ -55,7 +65,7 @@ assert_divergence_avoidance(#test { nodes         = NodesPred,
         {Pr, Ac} ->
             {error, {node_divergence, Pr, Ac}}
     end;
-assert_divergence_avoidance(Pred, Achi) ->
+detect_divergence_avoidance(Pred, Achi) ->
     {error, {config_divergence, Pred, Achi}}.
 
 observe_stable_state(Test = #test { nodes = Nodes }) ->
@@ -64,8 +74,7 @@ observe_stable_state(Test = #test { nodes = Nodes }) ->
         {stable, S} -> ?SLEEP, %% always sleep, just to allow some time
                        case clusterer_node:observe_stable_state(Pids) of
                            {stable, S} -> S; %% No one has changed, all good.
-                           _           -> ?SLEEP,
-                                          observe_stable_state(Test)
+                           _           -> observe_stable_state(Test)
                        end;
         _           -> ?SLEEP,
                        observe_stable_state(Test)

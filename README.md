@@ -19,7 +19,8 @@ you do use these, behaviour is undefined, and most likely
 bad. `rabbitmqctl cluster_status` may be used to inspect a cluster
 state, but the Clusterer sends to the standard Rabbit log files
 details about any clusters it joins or leaves. See the *Inspecting the
-Clusterer Status* section further down.
+Clusterer Status* section further down. Also, `rabbitmqctl stop_app`
+and `rabbitmqctl start_app` must not be used.
 
 Furthermore, do not specify `cluster_nodes` in the Rabbit config file:
 it will be ignored.

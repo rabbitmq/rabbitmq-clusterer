@@ -4,7 +4,23 @@
 
 -record(state, { kind, status, node_id, config, comms, awaiting, joining }).
 
-%% Concerns for join: TODO explain
+%% Concerns for join:
+%%
+%% We need to figure out what our peers are doing. If any of them are
+%% up and running we can just join in with them. The only other case
+%% we care about is when everyone in the cluster config is alive
+%% (i.e. no BadNodes) and everyone is joining, just like us. In this
+%% case we know that there's no one with knowledge that must be
+%% preserved, so we elect a leader (based on gospel, though in this
+%% case it's not actually necessary to pay attention to gospel, it's
+%% just an easy and unambiguous decider). The leader then comes up on
+%% its own and everyone else waits for them to become ready, and then
+%% syncs.
+%%
+%% In all other cases (i.e. there are nodes rejoining etc) then we
+%% just wait and try again as we should be guaranteed to end up in
+%% some state with some nodes up and running and we can then sync to
+%% them.
 %%
 %%
 %% Concerns for rejoin:
@@ -127,8 +143,14 @@ event({comms, {Replies, BadNodes}}, State = #state { kind    = Kind,
                     %% reality they're likely to receive lots of the
                     %% same update from everyone else, but meh,
                     %% they'll just have to cope.
-                    update_remote_nodes(OlderThanUs, Youngest,
-                                        State #state { config = Youngest });
+                    %%
+                    %% We deliberately do this cast out of Comms to
+                    %% preserve ordering of messages.
+                    Msg = rabbit_clusterer_coordinator:template_new_config(
+                            Youngest),
+                    ok = rabbit_clusterer_comms:multi_cast(
+                           OlderThanUs, Msg, State #state.comms),
+                    request_status(State #state { config = Youngest });
                 younger -> %% cannot be older or invalid
                     {config_changed, Youngest}
             end
@@ -417,16 +439,8 @@ request_status(State = #state { node_id = NodeID,
 delayed_request_status(State) ->
     %% TODO: work out some sensible timeout value
     Ref = make_ref(),
-    {sleep, 1000, {delayed_request_status, Ref},
+    {sleep, 500, {delayed_request_status, Ref},
      State #state { status = {delayed_request_status, Ref} }}.
-
-update_remote_nodes(Nodes, Config, State = #state { comms = Comms }) ->
-    %% Assumption here is Nodes does not contain node(). We
-    %% deliberately do this cast out of Comms to preserve ordering of
-    %% messages.
-    Msg = rabbit_clusterer_coordinator:template_new_config(Config),
-    ok = rabbit_clusterer_comms:multi_cast(Nodes, Msg, Comms),
-    delayed_request_status(State).
 
 %% The input is a k/v list of nodes and their config+status tuples (or
 %% the atom 'preboot' if the node is in the process of starting up),

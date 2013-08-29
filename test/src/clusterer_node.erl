@@ -13,6 +13,7 @@
 -record(state, { name, name_str, port }).
 
 -define(IS_NODE_OFF(R), R =:= noconnection; R =:= nodedown; R =:= noproc).
+-define(SLEEP, timer:sleep(250)).
 
 %% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<
 
@@ -62,7 +63,7 @@ init([Name, Port]) ->
     ok = delete_internal_cluster_config(State),
     {ok, State}.
 
-handle_call(exit, From, State = #state { name = Name }) ->
+handle_call(exit, _From, State = #state { name = Name }) ->
     ok = make_cmd("stop-node", State),
     ok = await_death(Name),
     ok = make_cmd("cleandb", State),
@@ -147,19 +148,16 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 await_death(Name) ->
-    case net_adm:ping(Name) of
-        pong -> timer:sleep(1000),
-                await_death(Name);
-        pang -> timer:sleep(500),
-                ok
-    end.
+    await(Name, pong, pang).
 
 await_life(Name) ->
+    await(Name, pang, pong).
+
+await(Name, Again, Return) ->
     case net_adm:ping(Name) of
-        pang -> timer:sleep(1000),
-                await_life(Name);
-        pong -> timer:sleep(500),
-                ok
+        Again  -> ?SLEEP,
+                  await(Name, Again, Return);
+        Return -> ok
     end.
 
 convert(ClustererConfig) ->
