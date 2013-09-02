@@ -22,12 +22,9 @@ store_node(Node = #node { name = Name }, Test = #test { nodes = Nodes }) ->
     Test #test { nodes = orddict:store(Name, Node, Nodes) }.
 
 set_node_state(Node = #node { name = Name, state = State }, Config) ->
-    case {State, contains_node(Name, Config)} of
-        {off,   _    } -> Node;
-        {reset, _    } -> Node;
-        {_,     true } -> Node #node { state = ready };
-        {ready, false} -> Node #node { state = {pending_shutdown, 0} };
-        {_,     false} -> Node %% was pending_shutdown, won't get updated
+    case State =:= ready andalso not contains_node(Name, Config) of
+        true  -> Node #node { state = off };
+        false -> Node
     end.
 
 contains_node(Node,  #config { nodes = Nodes }) -> orddict:is_key(Node, Nodes);

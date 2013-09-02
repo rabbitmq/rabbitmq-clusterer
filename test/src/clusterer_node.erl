@@ -115,9 +115,7 @@ handle_cast({stable_state, Ref, From}, State = #state { name     = Name,
                 preboot                      -> false;
                 {Config,  {transitioner, _}} -> {ready, convert(Config)};
                 {_Config, booting}           -> false;
-                { Config, ready}             -> {ready, convert(Config)};
-                { Config, pending_shutdown}  -> {pending_shutdown,
-                                                 convert(Config)}
+                { Config, ready}             -> {ready, convert(Config)}
             end
         catch
             exit:{R, _}      when ?IS_NODE_OFF(R) ->
