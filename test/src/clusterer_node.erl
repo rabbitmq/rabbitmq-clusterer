@@ -166,13 +166,11 @@ convert(ClustererConfig) ->
     DiscNodeNames = rabbit_clusterer_config:disc_nodenames(ClustererConfig),
     RamNodeNames = NodesNames -- DiscNodeNames,
     Gospel = rabbit_clusterer_config:gospel(ClustererConfig),
-    ShutdownTimeout = rabbit_clusterer_config:shutdown_timeout(ClustererConfig),
     #config { version          = Version,
               nodes            = orddict:from_list(
                                    [{Name, disc} || Name <- DiscNodeNames] ++
                                        [{Name, ram} || Name <- RamNodeNames]),
-              gospel           = Gospel,
-              shutdown_timeout = ShutdownTimeout }.
+              gospel           = Gospel }.
 
 makefile_dir() ->
     filename:join(filename:dirname(code:which(rabbit)), "..").

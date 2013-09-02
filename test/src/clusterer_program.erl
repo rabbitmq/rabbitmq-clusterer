@@ -51,8 +51,7 @@ generate_modify_config_instructions(
     #config { nodes = ConfigNodes, gospel = Gospel } = Config,
     {InstrFun, Test1} =
         choose_one_noop1(
-          lists:flatten([fun change_shutdown_timeout_instr/1,
-                         fun update_version_instr/1,
+          lists:flatten([fun update_version_instr/1,
                          case ConfigNodes of
                              [] -> [];
                              _  -> fun change_gospel_instr/1
@@ -150,14 +149,6 @@ modify_node_instructions(#node { name = Name, state = {pending_shutdown, _} },
      end].
 
 %% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<
-
-change_shutdown_timeout_instr(
-  Test = #test { config = Config = #config { shutdown_timeout = ST } }) ->
-    Values = [infinity, 0, 1, 10],
-    {Value, Test1} = choose_one([V || V <- Values, V =/= ST], Test),
-    Config1 = Config #config { shutdown_timeout = Value },
-    {{config_shutdown_timeout_to, Value},
-     clusterer_utils:set_config(Config1, Test1)}.
 
 update_version_instr(
   Test = #test { config = Config = #config { version = V } }) ->

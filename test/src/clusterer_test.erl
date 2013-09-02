@@ -50,7 +50,6 @@ new_state(Host, Seed) ->
             nodes         = orddict:new(),
             config        = #config { nodes            = [],
                                       gospel           = reset,
-                                      shutdown_timeout = infinity,
                                       version          = 0 },
             valid_config  = undefined,
             active_config = undefined

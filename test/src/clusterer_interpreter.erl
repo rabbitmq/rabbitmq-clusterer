@@ -208,11 +208,6 @@ run_modify_config(Step = #step { modify_config_instr = Instr,
 
 run_modify_config_instr(noop, Test) ->
     Test;
-run_modify_config_instr({config_shutdown_timeout_to, V},
-                        Test = #test { config = Config =
-                                           #config { shutdown_timeout = V1 } })
-  when V =/= V1 ->
-    clusterer_utils:set_config(Config #config { shutdown_timeout = V }, Test);
 run_modify_config_instr({config_version_to, V},
                         Test = #test { config = Config =
                                            #config { version = V1 } })
