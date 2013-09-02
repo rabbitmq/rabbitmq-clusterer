@@ -413,7 +413,8 @@ begin_transition(true,     NewConfig, State = #state { status  = ready,
       [rabbit_clusterer_config:to_proplist(NodeID, NewConfig)]),
     update_monitoring(State #state { config = NewConfig });
 begin_transition(false,    NewConfig, State = #state { status = ready }) ->
-    join_or_rejoin(join,   NewConfig, set_status(pending_shutdown, State));
+    ok = stop_rabbit(),
+    join_or_rejoin(join,   NewConfig, State);
 begin_transition(true,     NewConfig, State) ->
     join_or_rejoin(rejoin, NewConfig, State);
 begin_transition(false,    NewConfig, State) ->
@@ -489,7 +490,7 @@ stop_comms(State = #state { comms = Token }) ->
 %%----------------------------------------------------------------------------
 
 stop_rabbit() ->
-    error_logger:info_msg("Clusterer stopping Rabbit pending shutdown.~n"),
+    error_logger:info_msg("Clusterer stopping Rabbit.~n"),
     ok = rabbit:await_startup(),
     ok = rabbit_clusterer_utils:stop_rabbit(),
     ok = rabbit_clusterer_utils:stop_mnesia(),
