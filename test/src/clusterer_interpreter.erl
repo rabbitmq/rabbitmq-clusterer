@@ -13,7 +13,7 @@ run_program([Step | Steps], InitialState) ->
     PredictedState = Step #step.final_state,
     AchievedState = (run_step(Step #step { final_state = InitialState })
                     ) #step.final_state,
-    case detect_divergence_avoidance(PredictedState, AchievedState) of
+    case check_convergence(PredictedState, AchievedState) of
         ok ->
             case compare_state(AchievedState,
                                observe_stable_state(AchievedState)) of
@@ -35,14 +35,14 @@ tidy(#test { nodes = Nodes }) ->
 
 %% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<
 
-detect_divergence_avoidance(#test { nodes         = NodesPred,
-                                    config        = Config,
-                                    valid_config  = VConfig,
-                                    active_config = AConfig },
-                            #test { nodes         = NodesAchi,
-                                    config        = Config,
-                                    valid_config  = VConfig,
-                                    active_config = AConfig }) ->
+check_convergence(#test { nodes         = NodesPred,
+                          config        = Config,
+                          valid_config  = VConfig,
+                          active_config = AConfig },
+                  #test { nodes         = NodesAchi,
+                          config        = Config,
+                          valid_config  = VConfig,
+                          active_config = AConfig }) ->
     %% Configs should just match exactly. Nodes will differ only in
     %% that Achi will have pids and may be 'off' rather than
     %% 'pending_shutdown'.
@@ -65,7 +65,7 @@ detect_divergence_avoidance(#test { nodes         = NodesPred,
         {Pr, Ac} ->
             {error, {node_divergence, Pr, Ac}}
     end;
-detect_divergence_avoidance(Pred, Achi) ->
+check_convergence(Pred, Achi) ->
     {error, {config_divergence, Pred, Achi}}.
 
 observe_stable_state(Test = #test { nodes = Nodes }) ->
