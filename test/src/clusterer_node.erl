@@ -59,28 +59,24 @@ init([Name, Port]) ->
                      name_str = atom_to_list(Name),
                      port     = rabbit_misc:format("~p", [Port]) },
     pang = net_adm:ping(Name), %% ASSERTION
-    ok = make_cmd("cleandb", State),
-    ok = delete_internal_cluster_config(State),
+    ok = clean_db(State),
     {ok, State}.
 
 handle_call(exit, _From, State = #state { name = Name }) ->
     ok = make_cmd("stop-node", State),
     ok = await_death(Name),
-    ok = make_cmd("cleandb", State),
-    ok = delete_internal_cluster_config(State),
+    ok = clean_db(State),
     {stop, normal, ok, State};
 handle_call(Msg, From, State) ->
     {stop, {unhandled_call, Msg, From}, State}.
 
 handle_cast(delete, State = #state { name = Name }) ->
     pang = net_adm:ping(Name), %% ASSERTION
-    ok = make_cmd("cleandb", State),
-    ok = delete_internal_cluster_config(State),
+    ok = clean_db(State),
     {stop, normal, State};
 handle_cast(reset, State = #state { name = Name }) ->
     pang = net_adm:ping(Name), %% ASSERTION
-    ok = make_cmd("cleandb", State),
-    ok = delete_internal_cluster_config(State),
+    ok = clean_db(State),
     {noreply, State};
 handle_cast(start, State = #state { name = Name }) ->
     pang = net_adm:ping(Name), %% ASSERTION
@@ -240,8 +236,8 @@ make_bg_cmd(Action, StartArgs, #state { name_str = NameStr, port = Port }) ->
     os:cmd(Cmd),
     ok.
 
-
-delete_internal_cluster_config(#state { name_str = NameStr }) ->
+clean_db(State = #state { name_str = NameStr }) ->
+    ok = make_cmd("cleandb", State),
     case file:delete(mnesia_dir(NameStr) ++ "-cluster.config") of
         ok              -> ok;
         {error, enoent} -> ok;
