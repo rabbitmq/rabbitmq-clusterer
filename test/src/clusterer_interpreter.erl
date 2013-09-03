@@ -46,8 +46,7 @@ check_convergence(#test { nodes         = NodesPred,
                           valid_config  = VConfig,
                           active_config = AConfig }) ->
     %% Configs should just match exactly. Nodes will differ only in
-    %% that Achi will have pids and may be 'off' rather than
-    %% 'pending_shutdown'.
+    %% that Achi will have pids
     case {orddict:fetch_keys(NodesPred), orddict:fetch_keys(NodesAchi)} of
         {Eq, Eq} ->
             orddict:fold(
@@ -58,7 +57,6 @@ check_convergence(#test { nodes         = NodesPred,
                           orddict:fetch(Name, NodesPred),
                       case {StatePred, StateAchi} of
                           {EqSt,                  EqSt} -> ok;
-                          {{pending_shutdown, _}, off } -> ok;
                           {_,                     _   } ->
                               {error, {node_state_divergence, Name,
                                        StateAchi, StatePred}}
@@ -96,10 +94,6 @@ compare_state(Test = #test { nodes         = Nodes,
                               {off, off} ->
                                   orddict:store(Name, Node, Acc);
                               {reset, reset} ->
-                                  orddict:store(Name, Node, Acc);
-                              {{pending_shutdown, _}, off} ->
-                                  orddict:store(Name, Node #node { state = off }, Acc);
-                              {{pending_shutdown, _}, {pending_shutdown, AConfig}} ->
                                   orddict:store(Name, Node, Acc);
                               {ready, {ready, AConfig}} ->
                                   orddict:store(Name, Node, Acc);
@@ -147,33 +141,19 @@ run_modify_node_instr({start_node_with_config, Name, VConfig},
 run_modify_node_instr({apply_config_to_node, Name, VConfig},
                       Test = #test { nodes        = Nodes,
                                      valid_config = VConfig }) ->
-    %% Now it's possible that the program thought the node would still
-    %% be in {pending_shutdown, _} but too much time has passed and
-    %% the node has actually stopped. This is fairly easy to fix.
     Node = #node { state = State, pid = Pid } = orddict:fetch(Name, Nodes),
     case State of
-        off ->
-            ok = clusterer_node:start_with_config(Pid, VConfig);
-        {pending_shutdown, _} ->
-            ok = clusterer_node:apply_config(Pid, VConfig);
-        ready ->
-            ok = clusterer_node:apply_config(Pid, VConfig)
+        off   -> ok = clusterer_node:start_with_config(Pid, VConfig);
+        ready -> ok = clusterer_node:apply_config(Pid, VConfig)
     end,
     clusterer_utils:make_config_active(
       clusterer_utils:store_node(Node #node { state = ready }, Test));
 run_modify_node_instr({stop_node, Name}, Test = #test { nodes = Nodes }) ->
-    %% Again, we could have thought we should be in {pending_shutdown,
-    %% _} but find we're actually stopped. This is fine.
     Node = #node { state = State, pid = Pid } = orddict:fetch(Name, Nodes),
     case State of
-        off ->
-            Test;
-        {pending_shutdown, _} ->
-            ok = clusterer_node:stop(Pid),
-            clusterer_utils:store_node(Node #node { state = off }, Test);
-        ready ->
-            ok = clusterer_node:stop(Pid),
-            clusterer_utils:store_node(Node #node { state = off }, Test)
+        off   -> Test;
+        ready -> ok = clusterer_node:stop(Pid),
+                 clusterer_utils:store_node(Node #node { state = off }, Test)
     end.
 
 %%----------------------------------------------------------------------------
@@ -210,11 +190,6 @@ run_modify_config(Step = #step { modify_config_instr = Instr,
 
 run_modify_config_instr(noop, Test) ->
     Test;
-run_modify_config_instr({config_shutdown_timeout_to, V},
-                        Test = #test { config = Config =
-                                           #config { shutdown_timeout = V1 } })
-  when V =/= V1 ->
-    clusterer_utils:set_config(Config #config { shutdown_timeout = V }, Test);
 run_modify_config_instr({config_version_to, V},
                         Test = #test { config = Config =
                                            #config { version = V1 } })

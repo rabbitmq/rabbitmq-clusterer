@@ -53,8 +53,7 @@ generate_modify_config_instructions(
     #config { nodes = ConfigNodes, gospel = Gospel } = Config,
     {InstrFun, Test1} =
         choose_one_noop1(
-          lists:flatten([fun change_shutdown_timeout_instr/1,
-                         fun update_version_instr/1,
+          lists:flatten([fun update_version_instr/1,
                          case ConfigNodes of
                              [] -> [];
                              _  -> fun change_gospel_instr/1
@@ -101,13 +100,7 @@ modify_node_instructions(#node { name = Name, state = off },
                          Test = #test { valid_config  = VConfig,
                                         active_config = AConfig }) ->
     %% To keep life simpler, we only allow starting a node with the
-    %% new config if the new config uses the node. If the config
-    %% didn't, then yes, we could model that that node would go into
-    %% pending_shutdown (and the new config wouldn't become active
-    %% across the cluster), but it would then be very complex to model
-    %% what would happen if other nodes contacted the node when in
-    %% pending_shutdown - there might well be ways in which this
-    %% config could be sent to other nodes and thus become active.
+    %% new config if the new config uses the node.
     [fun reset_node_instr/2,
      case is_config_active(Test) of
          true  -> [fun start_node_instr/2];
@@ -138,28 +131,9 @@ modify_node_instructions(#node { state = ready },
      case VConfig of
          #config {} when VConfig =/= AConfig -> [fun apply_config_instr/2];
          _                                   -> []
-     end];
-modify_node_instructions(#node { name = Name, state = {pending_shutdown, _} },
-                         #test { valid_config = VConfig }) ->
-    %% As with state=off, we only allow apply_config_instr if the node
-    %% is involved in the config. By definition, if Node is
-    %% pending_shutdown and VConfig contains Node then VConfig =/=
-    %% AConfig.
-    [fun stop_node_instr/2,
-     case clusterer_utils:contains_node(Name, VConfig) of
-         true  -> [fun apply_config_instr/2];
-         false -> []
      end].
 
 %%----------------------------------------------------------------------------
-
-change_shutdown_timeout_instr(
-  Test = #test { config = Config = #config { shutdown_timeout = ST } }) ->
-    Values = [infinity, 0, 1, 10],
-    {Value, Test1} = choose_one([V || V <- Values, V =/= ST], Test),
-    Config1 = Config #config { shutdown_timeout = Value },
-    {{config_shutdown_timeout_to, Value},
-     clusterer_utils:set_config(Config1, Test1)}.
 
 update_version_instr(
   Test = #test { config = Config = #config { version = V } }) ->
@@ -235,9 +209,8 @@ start_node_with_config_instr(Node = #node { name = Name, state = State },
      clusterer_utils:make_config_active(
        clusterer_utils:store_node(Node #node { state = ready }, Test))}.
 
-apply_config_instr(#node { name = Name },
+apply_config_instr(#node { name = Name, state = ready },
                    Test = #test { valid_config = VConfig }) ->
-    %% State = ready orelse State = {pending_shutdown, _}
     {{apply_config_to_node, Name, VConfig},
      clusterer_utils:make_config_active(Test)}.
 
