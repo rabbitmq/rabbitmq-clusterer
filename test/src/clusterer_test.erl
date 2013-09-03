@@ -10,13 +10,10 @@ test(Limit) when Limit > 0 ->
 
 test(From, To) when To > From ->
     case node() of
-        'nonode@nohost' ->
-            {error, must_be_distributed_node};
-        Node ->
-            [$@|Host] = lists:dropwhile(
-                          fun (C) -> C =/= $@ end, atom_to_list(Node)),
-            io:format("Passed programs: ["),
-            test_sequence(Host, To, From, 0)
+        'nonode@nohost' -> {error, must_be_distributed_node};
+        Node            -> {_, Host} = rabbit_nodes:parts(Node),
+                           io:format("Passed programs: ["),
+                           test_sequence(Host, To, From, 0)
     end.
 
 test_sequence(_Host, Limit, Limit, RanCount) ->
@@ -33,7 +30,7 @@ test_sequence(Host, Limit, N, RanCount) ->
     end.
 
 test_program(Seed) ->
-    [$@|Host] = lists:dropwhile(fun (C) -> C =/= $@ end, atom_to_list(node())),
+    {_, Host} = rabbit_nodes:parts(node()),
     test_program(Host, Seed).
 
 test_program(Host, Seed) ->
