@@ -60,11 +60,8 @@ filter_program(Program) ->
         false -> skip
     end.
 
-two_ready([]) ->
-    false;
-two_ready([#step { final_state = #test { nodes = Nodes } } | Steps]) ->
-    case length([true || {_Name, #node { state = ready }}
-                             <- orddict:to_list(Nodes)]) > 1 of
-        true  -> true;
-        false -> two_ready(Steps)
-    end.
+two_ready(Steps) ->
+    lists:any(fun (#step { final_state = #test { nodes = Nodes } }) ->
+                      length([true || {_Name, #node { state = ready }}
+                                          <- orddict:to_list(Nodes)]) > 1
+              end, Steps).
