@@ -63,7 +63,7 @@ init([Name, Port]) ->
     {ok, State}.
 
 handle_call(exit, _From, State = #state { name = Name }) ->
-    ok = make_cmd("stop-node", State),
+    ok = run_cmd("stop-node", State),
     ok = await_death(Name),
     ok = clean_db(State),
     {stop, normal, ok, State};
@@ -80,18 +80,18 @@ handle_cast(reset, State = #state { name = Name }) ->
     {noreply, State};
 handle_cast(start, State = #state { name = Name }) ->
     pang = net_adm:ping(Name), %% ASSERTION
-    ok = make_bg_cmd("run", "-noinput", State),
+    ok = run_bg_cmd("run", "-noinput", State),
     ok = await_life(Name),
     {noreply, State};
 handle_cast(stop, State = #state { name = Name }) ->
     pong = net_adm:ping(Name),
-    ok = make_cmd("stop-node", State),
+    ok = run_cmd("stop-node", State),
     ok = await_death(Name),
     {noreply, State};
 handle_cast({start_with_config, Config}, State = #state { name     = Name,
                                                           name_str = NameStr }) ->
     ok = store_external_cluster_config(NameStr, Config),
-    ok = make_bg_cmd("run", "-rabbitmq_clusterer config \\\\\\\"" ++
+    ok = run_bg_cmd("run", "-rabbitmq_clusterer config \\\\\\\"" ++
                          external_config_file(NameStr) ++ "\\\\\\\" -noinput",
                      State),
     ok = await_life(Name),
@@ -201,7 +201,7 @@ ctl(Action, #state { name_str = NameStr }) ->
     "0" = LastLine, %% ASSERTION
     ok.
 
-make_cmd(Action, #state { name_str = NameStr, port = Port }) ->
+run_cmd(Action, #state { name_str = NameStr, port = Port }) ->
     Cmd = lists:flatten(["RABBITMQ_NODENAME=",
                          NameStr,
                          " RABBITMQ_NODE_PORT=",
@@ -216,7 +216,7 @@ make_cmd(Action, #state { name_str = NameStr, port = Port }) ->
     "0" = LastLine, %% ASSERTION
     ok.
 
-make_bg_cmd(Action, StartArgs, #state { name_str = NameStr, port = Port }) ->
+run_bg_cmd(Action, StartArgs, #state { name_str = NameStr, port = Port }) ->
     Log = mnesia_dir(NameStr),
     Cmd = lists:flatten(["RABBITMQ_NODENAME=",
                          NameStr,
@@ -237,7 +237,7 @@ make_bg_cmd(Action, StartArgs, #state { name_str = NameStr, port = Port }) ->
     ok.
 
 clean_db(State = #state { name_str = NameStr }) ->
-    ok = make_cmd("cleandb", State),
+    ok = run_cmd("cleandb", State),
     case file:delete(mnesia_dir(NameStr) ++ "-cluster.config") of
         ok              -> ok;
         {error, enoent} -> ok;
