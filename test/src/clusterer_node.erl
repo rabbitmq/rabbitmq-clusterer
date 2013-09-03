@@ -15,7 +15,7 @@
 -define(IS_NODE_OFF(R), R =:= noconnection; R =:= nodedown; R =:= noproc).
 -define(SLEEP, timer:sleep(250)).
 
-%% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<
+%%----------------------------------------------------------------------------
 
 observe_stable_state([]) ->
     {stable, orddict:new()};
@@ -32,7 +32,7 @@ observe_stable_state(Pids) ->
         _  -> not_stable
     end.
 
-%% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<
+%%----------------------------------------------------------------------------
 
 start_link(Name, Port) when is_atom(Name) andalso is_integer(Port) ->
     gen_server:start_link(?MODULE, [Name, Port], []).
@@ -52,7 +52,7 @@ stop(Pid) -> gen_server:cast(Pid, stop).
 
 exit(Pid) -> gen_server:call(Pid, exit, infinity).
 
-%% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<
+%%----------------------------------------------------------------------------
 
 init([Name, Port]) ->
     State = #state { name     = Name,

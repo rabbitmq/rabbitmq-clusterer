@@ -6,6 +6,8 @@
 
 -define(BASE_PORT, 10000).
 
+%%----------------------------------------------------------------------------
+
 generate_program(Test = #test {}) ->
     generate_program([], Test).
 
@@ -93,7 +95,7 @@ generate_existential_node_instructions(
                                        final_state       = Test3 }
                  end, Step #step { final_state = Test1 }).
 
-%% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<
+%%----------------------------------------------------------------------------
 
 modify_node_instructions(#node { name = Name, state = off },
                          Test = #test { valid_config  = VConfig,
@@ -149,7 +151,7 @@ modify_node_instructions(#node { name = Name, state = {pending_shutdown, _} },
          false -> []
      end].
 
-%% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<
+%%----------------------------------------------------------------------------
 
 change_shutdown_timeout_instr(
   Test = #test { config = Config = #config { shutdown_timeout = ST } }) ->
@@ -194,7 +196,7 @@ remove_node_from_config_instr(
     {{config_remove_node, Value},
      clusterer_utils:set_config(Config1, Test1)}.
 
-%% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<
+%%----------------------------------------------------------------------------
 
 create_node_instr(Test) ->
     {Name, Port, Test1 = #test { nodes = Nodes }} = generate_name_port(Test),
@@ -213,7 +215,7 @@ delete_node_instr(Test = #test { nodes = Nodes }) ->
     {Name, Test1} = choose_one(Names, Test),
     {{delete_node, Name}, Test1 #test { nodes = orddict:erase(Name, Nodes) }}.
 
-%% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<
+%%----------------------------------------------------------------------------
 
 reset_node_instr(Node = #node { name = Name, state = off }, Test) ->
     {{reset_node, Name},
@@ -243,7 +245,7 @@ stop_node_instr(Node = #node { name = Name }, Test) ->
     {{stop_node, Name},
      clusterer_utils:store_node(Node #node { state = off }, Test)}.
 
-%% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<
+%%----------------------------------------------------------------------------
 
 is_config_active(#test { active_config = undefined }) ->
     false;

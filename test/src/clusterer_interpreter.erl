@@ -6,6 +6,8 @@
 
 -define(SLEEP, timer:sleep(500)).
 
+%%----------------------------------------------------------------------------
+
 run_program([], FinalState) ->
     ok = tidy(FinalState),
     ok;
@@ -33,7 +35,7 @@ tidy(#test { nodes = Nodes }) ->
      || {_Name, #node { pid = Pid }} <- orddict:to_list(Nodes)],
     ok.
 
-%% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<
+%%----------------------------------------------------------------------------
 
 check_convergence(#test { nodes         = NodesPred,
                           config        = Config,
@@ -113,7 +115,7 @@ compare_state(Test = #test { nodes         = Nodes,
             {error, {nodes_divergence, DivergenceNodes}}
     end.
 
-%% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<
+%%----------------------------------------------------------------------------
 
 run_modify_nodes(Step = #step { modify_node_instrs = Instrs,
                                 final_state        = Test }) ->
@@ -174,7 +176,7 @@ run_modify_node_instr({stop_node, Name}, Test = #test { nodes = Nodes }) ->
             clusterer_utils:store_node(Node #node { state = off }, Test)
     end.
 
-%% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<
+%%----------------------------------------------------------------------------
 
 run_existential_node(Step = #step { existential_node_instr = Instr,
                                     final_state            = Test }) ->
@@ -199,7 +201,7 @@ run_existential_node_instr({delete_node, Name},
     ok = clusterer_node:delete(Pid),
     Test #test { nodes = orddict:erase(Name, Nodes) }.
 
-%% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<
+%%----------------------------------------------------------------------------
 
 run_modify_config(Step = #step { modify_config_instr = Instr,
                                  final_state         = Test }) ->
@@ -242,5 +244,3 @@ run_modify_config_instr({config_remove_node, Name},
     true = orddict:is_key(Name, ConfigNodes), %% ASSERTION
     ConfigNodes1 = orddict:erase(Name, ConfigNodes),
     clusterer_utils:set_config(Config #config { nodes = ConfigNodes1 }, Test).
-
-%% >=---=<80808080808>=---|v|v|---=<80808080808>=---=<

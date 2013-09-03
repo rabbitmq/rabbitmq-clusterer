@@ -8,6 +8,8 @@
 
 -include("clusterer_test.hrl").
 
+%%----------------------------------------------------------------------------
+
 set_config(Config = #config { nodes = [_|_] },
            Test = #test { valid_config = undefined }) ->
     Test #test { config = Config, valid_config = Config };

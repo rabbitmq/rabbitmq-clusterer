@@ -4,6 +4,8 @@
 
 -include("clusterer_test.hrl").
 
+%%----------------------------------------------------------------------------
+
 %% NB Limit is exclusive, not inclusive.
 test(Limit) when Limit > 0 ->
     test(0, Limit).
@@ -40,6 +42,8 @@ test_program(Host, Seed) ->
         skip -> skip;
         run  -> {Program, clusterer_interpreter:run_program(Program, State)}
     end.
+
+%%----------------------------------------------------------------------------
 
 new_state(Host, Seed) ->
     #test { seed          = Seed,
