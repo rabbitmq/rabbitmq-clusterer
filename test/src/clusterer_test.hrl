@@ -14,8 +14,7 @@
 
 -record(config, { version,
                   nodes,
-                  gospel,
-                  shutdown_timeout }).
+                  gospel }).
 
 -record(step, { modify_node_instrs,
                 modify_config_instr,

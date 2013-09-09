@@ -111,9 +111,7 @@ handle_cast({stable_state, Ref, From}, State = #state { name     = Name,
                 preboot                      -> false;
                 {Config,  {transitioner, _}} -> {ready, convert(Config)};
                 {_Config, booting}           -> false;
-                { Config, ready}             -> {ready, convert(Config)};
-                { Config, pending_shutdown}  -> {pending_shutdown,
-                                                 convert(Config)}
+                { Config, ready}             -> {ready, convert(Config)}
             end
         catch
             exit:{R, _}      when ?IS_NODE_OFF(R) ->
@@ -162,13 +160,11 @@ convert(ClustererConfig) ->
     DiscNodeNames = rabbit_clusterer_config:disc_nodenames(ClustererConfig),
     RamNodeNames = NodesNames -- DiscNodeNames,
     Gospel = rabbit_clusterer_config:gospel(ClustererConfig),
-    ShutdownTimeout = rabbit_clusterer_config:shutdown_timeout(ClustererConfig),
     #config { version          = Version,
               nodes            = orddict:from_list(
                                    [{Name, disc} || Name <- DiscNodeNames] ++
                                        [{Name, ram} || Name <- RamNodeNames]),
-              gospel           = Gospel,
-              shutdown_timeout = ShutdownTimeout }.
+              gospel           = Gospel }.
 
 makefile_dir() ->
     filename:join(filename:dirname(code:which(rabbit)), "..").
