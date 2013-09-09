@@ -134,8 +134,8 @@ run_modify_node_instr({start_node, Name},
     Node = #node { state = State, pid = Pid } = orddict:fetch(Name, Nodes),
     true = State =:= off orelse State =:= reset, %% ASSERTION
     ok = clusterer_node:start(Pid),
-    clusterer_utils:store_node(
-      clusterer_utils:set_node_state(Node, AConfig), Test);
+    clusterer_utils:store_node(clusterer_utils:set_node_state(
+                                 Node #node { state = ready }, AConfig), Test);
 run_modify_node_instr({start_node_with_config, Name, VConfig},
                       Test = #test { nodes        = Nodes,
                                      valid_config = VConfig }) ->

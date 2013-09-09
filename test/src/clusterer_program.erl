@@ -226,7 +226,8 @@ start_node_instr(Node = #node { name = Name, state = State },
   when State =:= off orelse State =:= reset ->
     {{start_node, Name},
      clusterer_utils:store_node(
-       clusterer_utils:set_node_state(Node, AConfig), Test)}.
+       clusterer_utils:set_node_state(
+         Node #node { state = ready }, AConfig), Test)}.
 
 start_node_with_config_instr(Node = #node { name = Name, state = State },
                              Test = #test { valid_config = VConfig })
