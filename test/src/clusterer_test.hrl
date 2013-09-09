@@ -1,5 +1,5 @@
 -record(test, { seed,
-                namer,
+                node_count,
                 nodes,
                 config,
                 valid_config,

@@ -258,10 +258,10 @@ is_config_active(#test { nodes = Nodes,
                          ready =:= (orddict:fetch(Name, Nodes)) #node.state
              end, ConfigNodes).
 
-generate_name_port(Test = #test { namer = {N, Host} }) ->
-    {list_to_atom(lists:flatten(io_lib:format("node~p@~s", [N, Host]))),
+generate_name_port(Test = #test { node_count = N }) ->
+    {list_to_atom(lists:flatten(io_lib:format("node~p@anyhost", [N]))),
      ?BASE_PORT + N,
-     Test #test { namer = {N+1, Host} }}.
+     Test #test { node_count = N+1 }}.
 
 noop(Test       ) -> {noop, Test}.
 noop(_Node, Test) -> {noop, Test}.

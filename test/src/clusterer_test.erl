@@ -31,23 +31,29 @@ test_sequence(Host, Limit, N, RanCount) ->
                           Err
     end.
 
-test_program(Seed) ->
+test_program(Seed) when is_integer(Seed) ->
     {_, Host} = rabbit_nodes:parts(node()),
-    test_program(Host, Seed).
+    test_program(Host, Seed);
+test_program(NomadicProgram) when is_list(NomadicProgram) ->
+    {_, Host} = rabbit_nodes:parts(node()),
+    Prog = clusterer_utils:localise_program(NomadicProgram, Host),
+    State = new_state(unknown_seed),
+    {NomadicProgram, clusterer_interpreter:run_program(Prog, State)}.
 
 test_program(Host, Seed) ->
-    State = new_state(Host, Seed),
-    Program = clusterer_program:generate_program(State),
-    case filter_program(Program) of
+    State = new_state(Seed),
+    NomadicProgram = clusterer_program:generate_program(State),
+    case filter_program(NomadicProgram) of
         skip -> skip;
-        run  -> {Program, clusterer_interpreter:run_program(Program, State)}
+        run  -> Prog = clusterer_utils:localise_program(NomadicProgram, Host),
+                {NomadicProgram, clusterer_interpreter:run_program(Prog, State)}
     end.
 
 %%----------------------------------------------------------------------------
 
-new_state(Host, Seed) ->
+new_state(Seed) ->
     #test { seed          = Seed,
-            namer         = {0, Host},
+            node_count    = 0,
             nodes         = orddict:new(),
             config        = #config { nodes            = [],
                                       gospel           = reset,

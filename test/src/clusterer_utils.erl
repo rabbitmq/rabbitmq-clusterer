@@ -4,7 +4,8 @@
          store_node/2,
          set_node_state/2,
          contains_node/2,
-         make_config_active/1]).
+         make_config_active/1,
+         localise_program/2]).
 
 -include("clusterer_test.hrl").
 
@@ -45,3 +46,72 @@ make_config_active(Test = #test { nodes        = Nodes,
                fun (_Name, Node) -> set_node_state(Node, VConfig) end, Nodes),
     Test #test { nodes         = Nodes1,
                  active_config = VConfig }.
+
+localise_program(Program, Host) ->
+    [localise_step(Step, Host) || Step <- Program].
+
+localise_step(#step { modify_node_instrs     = NodeInstrs,
+                      modify_config_instr    = ConfigInstr,
+                      existential_node_instr = ExistentialInstr,
+                      final_state            = State }, Host) ->
+    #step { modify_node_instrs     = [localise_instr(Instr, Host) ||
+                                         Instr <- NodeInstrs],
+            modify_config_instr    = localise_instr(ConfigInstr, Host),
+            existential_node_instr = localise_instr(ExistentialInstr, Host),
+            final_state            = localise_state(State, Host) }.
+
+localise_instr({Action, Name}, Host)
+  when Action =:= stop_node orelse
+       Action =:= start_node orelse
+       Action =:= reset_node orelse
+       Action =:= delete_node orelse
+       Action =:= config_remove_node orelse
+       Action =:= config_add_node ->
+    {Action, localise_name(Name, Host)};
+localise_instr({Action, Name, Config}, Host)
+  when Action =:= apply_config_to_node orelse
+       Action =:= start_node_with_config ->
+    {Action, localise_name(Name, Host), localise_config(Config, Host)};
+localise_instr({create_node, Name, Port}, Host) ->
+    {create_node, localise_name(Name, Host), Port};
+localise_instr({config_gospel_to, reset} = Instr, _Host) ->
+    Instr;
+localise_instr({config_gospel_to, {node, Name}}, Host) ->
+    {config_gospel_to, {node, localise_name(Name, Host)}};
+localise_instr({config_version_to, _Ver} = Instr, _Host) ->
+    Instr;
+localise_instr({config_shutdown_timeout_to, _ST} = Instr, _Host) ->
+    Instr;
+localise_instr(noop, _Host) ->
+    noop.
+
+localise_name(NodeName, Host) ->
+    {Node, _Host} = rabbit_nodes:parts(NodeName),
+    rabbit_nodes:make({Node, Host}).
+
+localise_config(Config = #config { nodes = Nodes, gospel = Gospel }, Host) ->
+    Config #config {
+      nodes = orddict:from_list([{localise_name(Name, Host), Value} ||
+                                    {Name, Value} <- orddict:to_list(Nodes)]),
+      gospel = case Gospel of
+                   reset        -> reset;
+                   {node, Name} -> {node, localise_name(Name, Host)}
+               end
+     };
+localise_config(undefined, _Host) ->
+    undefined.
+
+localise_state(Test = #test { nodes         = Nodes,
+                              config        = Config,
+                              valid_config  = VConfig,
+                              active_config = AConfig }, Host) ->
+    Test #test { nodes         = orddict:from_list(
+                                   [{localise_name(Name, Host),
+                                     localise_node(Node, Host)} ||
+                                       {Name, Node} <- orddict:to_list(Nodes)]),
+                 config        = localise_config(Config, Host),
+                 valid_config  = localise_config(VConfig, Host),
+                 active_config = localise_config(AConfig, Host) }.
+
+localise_node(Node = #node { name = Name }, Host) ->
+    Node #node { name = localise_name(Name, Host) }.
