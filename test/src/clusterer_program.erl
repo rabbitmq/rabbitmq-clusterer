@@ -22,14 +22,19 @@ generate_step(Test) ->
     %% step - i.e. they must all be able to be exec'd in parallel. To
     %% enforce that we generate the instructions in a particular
     %% order: 1) modify an existing node; 2) modify config; 3) create
-    %% new node.
-    Step = #step { modify_node_instrs = [],
-                   modify_config_instr = noop,
+    %% new node. However, "create new node" can also include "delete
+    %% node" and we need to ensure that if we delete a node it is not
+    %% also used in another instruction in the same step. Thus we do
+    %% the existential instruction first, but it can result in a
+    %% "delayed" instruction for creation that is exec'd at the end.
+    Step = #step { modify_node_instrs     = [],
+                   modify_config_instr    = noop,
                    existential_node_instr = noop,
-                   final_state = Test },
-    Step1 = step_if_seed(fun generate_modify_node_instructions/1, Step),
-    Step2 = step_if_seed(fun generate_modify_config_instructions/1, Step1),
-    step_if_seed(fun generate_existential_node_instructions/1, Step2).
+                   final_state            = Test },
+    Step1 = step_if_seed(fun generate_existential_node_instructions/1, Step),
+    Step2 = step_if_seed(fun generate_modify_node_instructions/1, Step1),
+    Step3 = step_if_seed(fun generate_modify_config_instructions/1, Step2),
+    eval_delayed_existential_instruction(Step3).
 
 generate_modify_node_instructions(
   Step = #step { final_state = Test = #test { nodes = Nodes } }) ->
@@ -81,7 +86,7 @@ generate_existential_node_instructions(
     {InstrFun, Test1} =
         choose_one_noop1(
           lists:flatten(
-            [fun create_node_instr/1,
+            [fun create_node_fun_instr/1, %% this one is delayed
              case orddict:size(
                     orddict:filter(fun (_Name, #node { state = State }) ->
                                            State =:= reset orelse State =:= off
@@ -90,9 +95,9 @@ generate_existential_node_instructions(
                  _ -> [fun delete_node_instr/1]
              end]), Test),
     step_if_seed(fun (Step1 = #step { final_state = Test2 }) ->
-                         {CreateNodeInstr, Test3} = InstrFun(Test2),
-                         Step1 #step { existential_node_instr = CreateNodeInstr,
-                                       final_state       = Test3 }
+                         {ExistNodeInstr, Test3} = InstrFun(Test2),
+                         Step1 #step { existential_node_instr = ExistNodeInstr,
+                                       final_state            = Test3 }
                  end, Step #step { final_state = Test1 }).
 
 %%----------------------------------------------------------------------------
@@ -198,14 +203,18 @@ remove_node_from_config_instr(
 
 %%----------------------------------------------------------------------------
 
-create_node_instr(Test) ->
-    {Name, Port, Test1 = #test { nodes = Nodes }} = generate_name_port(Test),
-    Node = #node { name  = Name,
-                   port  = Port,
-                   pid   = undefined,
-                   state = reset },
-    {{create_node, Name, Port},
-     Test1 #test { nodes = orddict:store(Name, Node, Nodes) }}.
+create_node_fun_instr(Test) ->
+    {{delayed,
+      fun (Test1) ->
+              {Name, Port, Test2 = #test { nodes = Nodes }} =
+                  generate_name_port(Test1),
+              Node = #node { name  = Name,
+                             port  = Port,
+                             pid   = undefined,
+                             state = reset },
+              {{create_node, Name, Port},
+               Test2 #test { nodes = orddict:store(Name, Node, Nodes) }}
+      end}, Test}.
 
 delete_node_instr(Test = #test { nodes = Nodes }) ->
     Names = orddict:fetch_keys(
@@ -277,3 +286,16 @@ step_if_seed(_Fun, Step = #step { final_state = #test { seed = 0 } }) ->
     Step;
 step_if_seed(Fun,  Step = #step {}) ->
     Fun(Step).
+
+%% We only need this for the create_node case so we don't overly
+%% generalise this. Yes, I know this is not like me at all. Also, this
+%% case definitely doesn't need further seed so we don't wrap it in
+%% step_if_seed.
+eval_delayed_existential_instruction(
+  Step = #step { existential_node_instr = {delayed, Fun},
+                 final_state            = Test }) ->
+    {ExistentialInstr, Test1} = Fun(Test),
+    Step #step { existential_node_instr = ExistentialInstr,
+                 final_state            = Test1 };
+eval_delayed_existential_instruction(Step) ->
+    Step.
