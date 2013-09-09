@@ -1,12 +1,15 @@
 -module(clusterer_interpreter).
 
--export([run_program/2]).
+-export([run_program/1]).
 
 -include("clusterer_test.hrl").
 
 -define(SLEEP, timer:sleep(500)).
 
 %%----------------------------------------------------------------------------
+
+run_program({InitialState, Steps}) ->
+    run_program(Steps, InitialState).
 
 run_program([], FinalState) ->
     ok = tidy(FinalState),

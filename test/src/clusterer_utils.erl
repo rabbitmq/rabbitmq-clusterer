@@ -47,8 +47,9 @@ make_config_active(Test = #test { nodes        = Nodes,
     Test #test { nodes         = Nodes1,
                  active_config = VConfig }.
 
-localise_program(Program, Host) ->
-    [localise_step(Step, Host) || Step <- Program].
+localise_program({InitialState, Steps}, Host) ->
+    {localise_state(InitialState, Host),
+     [localise_step(Step, Host) || Step <- Steps]}.
 
 localise_step(#step { modify_node_instrs     = NodeInstrs,
                       modify_config_instr    = ConfigInstr,

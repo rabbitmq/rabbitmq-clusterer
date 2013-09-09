@@ -34,19 +34,17 @@ test_sequence(Host, Limit, N, RanCount) ->
 test_program(Seed) when is_integer(Seed) ->
     {_, Host} = rabbit_nodes:parts(node()),
     test_program(Host, Seed);
-test_program(NomadicProgram) when is_list(NomadicProgram) ->
+test_program(NomadicProgram = {#test {}, Steps}) when is_list(Steps) ->
     {_, Host} = rabbit_nodes:parts(node()),
     Prog = clusterer_utils:localise_program(NomadicProgram, Host),
-    State = new_state(unknown_seed),
-    {NomadicProgram, clusterer_interpreter:run_program(Prog, State)}.
+    {NomadicProgram, clusterer_interpreter:run_program(Prog)}.
 
 test_program(Host, Seed) ->
-    State = new_state(Seed),
-    NomadicProgram = clusterer_program:generate_program(State),
+    NomadicProgram = clusterer_program:generate_program(new_state(Seed)),
     case filter_program(NomadicProgram) of
         skip -> skip;
         run  -> Prog = clusterer_utils:localise_program(NomadicProgram, Host),
-                {NomadicProgram, clusterer_interpreter:run_program(Prog, State)}
+                {NomadicProgram, clusterer_interpreter:run_program(Prog)}
     end.
 
 %%----------------------------------------------------------------------------
@@ -70,7 +68,7 @@ filter_program(Program) ->
         false -> skip
     end.
 
-two_ready(Steps) ->
+two_ready({_InitialState, Steps}) ->
     lists:any(fun (#step { final_state = #test { nodes = Nodes } }) ->
                       length([true || {_Name, #node { state = ready }}
                                           <- orddict:to_list(Nodes)]) > 1

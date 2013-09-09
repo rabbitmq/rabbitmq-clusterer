@@ -9,7 +9,7 @@
 %%----------------------------------------------------------------------------
 
 generate_program(Test = #test {}) ->
-    generate_program([], Test).
+    {Test, generate_program([], Test)}.
 
 generate_program(Program, #test { seed = 0 }) ->
     lists:reverse(Program);
