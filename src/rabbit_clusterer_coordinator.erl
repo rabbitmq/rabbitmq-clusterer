@@ -143,7 +143,7 @@ handle_call({apply_config, NewConfig}, From,
             gen_server:reply(From, transition_in_progress_ok),
             {noreply, transitioner_event(
                         {new_config, NewConfig1, undefined}, State)};
-        {{ok, NewConfig1}, _} ->
+        {{ok, NewConfig1}, ready} ->
             ReadyNotRunning = Status =:= ready andalso not rabbit:is_running(),
             case rabbit_clusterer_config:compare(NewConfig1, Config) of
                 younger when ReadyNotRunning ->
