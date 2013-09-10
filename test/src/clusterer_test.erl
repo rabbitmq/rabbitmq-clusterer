@@ -37,14 +37,15 @@
 %% instruction. The list will always include the 'noop' instruction
 %% (but will never be just the 'noop' instruction), and the seed
 %% modulo the length of the list of valid instructions is used to
-%% select which instruction is chosen. The seed is the divided by the
-%% length of that list. Thus the entropy of the seed is slowly
-%% reduced: it is consumed by selecting instructions from lists. This
-%% strategy means every seed will result in a unique program (though
-%% isomorphisms of various degrees are possible), and that a given
-%% seed will always generate the same program. In other words, the
-%% seed is equivalent to the perfect compression of the program (proof
-%% left as an exercise to the reader...).
+%% select which instruction is chosen. The new seed is the current
+%% seed divided by the length of that list and is passed to the next
+%% stage of instruction selection. Thus the entropy of the seed is
+%% slowly reduced: it is consumed by selecting instructions from
+%% lists. This strategy means every seed will result in a unique
+%% program (though isomorphisms of various degrees are possible), and
+%% that a given seed will always generate the same program. In other
+%% words, the seed is equivalent to the perfect compression of the
+%% program (proof left as an exercise to the reader...).
 %%
 %% Program generation is heavily constrained to avoid generating
 %% programs where there are multiple possible valid outcomes, and to
