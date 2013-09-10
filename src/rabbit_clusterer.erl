@@ -43,9 +43,6 @@ status(Node) ->
                 {"Rabbit is running in cluster configuration: ~n~s~n"
                  "Running nodes: ~p~n", Config1,
                 [rabbit_mnesia:cluster_nodes(running)]};
-            {Config1, pending_shutdown} ->
-                {"Clusterer has stopped Rabbit due to non-involvement with "
-                 "cluster configuration: ~n~s~n", Config1, []};
             {Config1, {transitioner, join}} ->
                 {"Clusterer is trying to join into cluster configuration: "
                  "~n~s~n", Config1, []};
