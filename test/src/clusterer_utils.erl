@@ -12,17 +12,17 @@
 %%----------------------------------------------------------------------------
 
 set_config(Config = #config { nodes = [_|_] },
-           Test = #test { valid_config = undefined }) ->
-    Test #test { config = Config, valid_config = Config };
+           State = #state { valid_config = undefined }) ->
+    State #state { config = Config, valid_config = Config };
 set_config(Config = #config { nodes = [_|_], version = V },
-           Test = #test { valid_config = #config { version = VV } })
+           State = #state { valid_config = #config { version = VV } })
   when V > VV ->
-    Test #test { config = Config, valid_config = Config };
-set_config(Config, Test) ->
-    Test #test { config = Config }.
+    State #state { config = Config, valid_config = Config };
+set_config(Config, State) ->
+    State #state { config = Config }.
 
-store_node(Node = #node { name = Name }, Test = #test { nodes = Nodes }) ->
-    Test #test { nodes = orddict:store(Name, Node, Nodes) }.
+store_node(Node = #node { name = Name }, State = #state { nodes = Nodes }) ->
+    State #state { nodes = orddict:store(Name, Node, Nodes) }.
 
 set_node_state(Node = #node { name = Name, state = State },
                Config = #config { shutdown_timeout = ST }) ->
@@ -40,12 +40,12 @@ contains_node(_Node, undefined)                 -> false.
 %% Because we know that the valid config is only applied to nodes
 %% which are involved in the config, modelling the propogation is
 %% easy.
-make_config_active(Test = #test { nodes        = Nodes,
+make_config_active(State = #state { nodes        = Nodes,
                                   valid_config = VConfig = #config { } }) ->
     Nodes1 = orddict:map(
                fun (_Name, Node) -> set_node_state(Node, VConfig) end, Nodes),
-    Test #test { nodes         = Nodes1,
-                 active_config = VConfig }.
+    State #state { nodes         = Nodes1,
+                   active_config = VConfig }.
 
 localise_program({InitialState, Steps}, Host) ->
     {localise_state(InitialState, Host),
@@ -102,17 +102,18 @@ localise_config(Config = #config { nodes = Nodes, gospel = Gospel }, Host) ->
 localise_config(undefined, _Host) ->
     undefined.
 
-localise_state(Test = #test { nodes         = Nodes,
-                              config        = Config,
-                              valid_config  = VConfig,
-                              active_config = AConfig }, Host) ->
-    Test #test { nodes         = orddict:from_list(
-                                   [{localise_name(Name, Host),
-                                     localise_node(Node, Host)} ||
-                                       {Name, Node} <- orddict:to_list(Nodes)]),
-                 config        = localise_config(Config, Host),
-                 valid_config  = localise_config(VConfig, Host),
-                 active_config = localise_config(AConfig, Host) }.
+localise_state(State = #state { nodes         = Nodes,
+                                config        = Config,
+                                valid_config  = VConfig,
+                                active_config = AConfig }, Host) ->
+    State #state { nodes         =
+                       orddict:from_list(
+                         [{localise_name(Name, Host),
+                           localise_node(Node, Host)} ||
+                             {Name, Node} <- orddict:to_list(Nodes)]),
+                   config        = localise_config(Config, Host),
+                   valid_config  = localise_config(VConfig, Host),
+                   active_config = localise_config(AConfig, Host) }.
 
 localise_node(Node = #node { name = Name }, Host) ->
     Node #node { name = localise_name(Name, Host) }.

@@ -34,7 +34,7 @@ test_sequence(Host, Limit, N, RanCount) ->
 test_program(Seed) when is_integer(Seed) ->
     {_, Host} = rabbit_nodes:parts(node()),
     test_program(Host, Seed);
-test_program(NomadicProgram = {#test {}, Steps}) when is_list(Steps) ->
+test_program(NomadicProgram = {#state {}, Steps}) when is_list(Steps) ->
     {_, Host} = rabbit_nodes:parts(node()),
     Prog = clusterer_utils:localise_program(NomadicProgram, Host),
     {NomadicProgram, clusterer_interpreter:run_program(Prog)}.
@@ -50,16 +50,16 @@ test_program(Host, Seed) ->
 %%----------------------------------------------------------------------------
 
 new_state(Seed) ->
-    #test { seed          = Seed,
-            node_count    = 0,
-            nodes         = orddict:new(),
-            config        = #config { nodes            = [],
-                                      gospel           = reset,
-                                      shutdown_timeout = infinity,
-                                      version          = 0 },
-            valid_config  = undefined,
-            active_config = undefined
-          }.
+    #state { seed          = Seed,
+             node_count    = 0,
+             nodes         = orddict:new(),
+             config        = #config { nodes            = [],
+                                       gospel           = reset,
+                                       shutdown_timeout = infinity,
+                                       version          = 0 },
+             valid_config  = undefined,
+             active_config = undefined
+           }.
 
 filter_program(Program) ->
     %% Eventually there'll be a more sophisticated set of filters here.
@@ -69,7 +69,7 @@ filter_program(Program) ->
     end.
 
 two_ready({_InitialState, Steps}) ->
-    lists:any(fun (#step { final_state = #test { nodes = Nodes } }) ->
+    lists:any(fun (#step { final_state = #state { nodes = Nodes } }) ->
                       length([true || {_Name, #node { state = ready }}
                                           <- orddict:to_list(Nodes)]) > 1
               end, Steps).

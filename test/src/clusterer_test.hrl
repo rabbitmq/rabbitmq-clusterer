@@ -1,10 +1,10 @@
--record(test, { seed,
-                node_count,
-                nodes,
-                config,
-                valid_config,
-                active_config
-              }).
+-record(state, { seed,
+                 node_count,
+                 nodes,
+                 config,
+                 valid_config,
+                 active_config
+               }).
 
 -record(node, { name,
                 port,

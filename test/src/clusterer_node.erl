@@ -10,7 +10,7 @@
 
 -include("clusterer_test.hrl").
 
--record(state, { name, name_str, port }).
+-record(node_state, { name, name_str, port }).
 
 -define(IS_NODE_OFF(R), R =:= noconnection; R =:= nodedown; R =:= noproc).
 -define(SLEEP, timer:sleep(250)).
@@ -55,14 +55,14 @@ exit(Pid) -> gen_server:call(Pid, exit, infinity).
 %%----------------------------------------------------------------------------
 
 init([Name, Port]) ->
-    State = #state { name     = Name,
-                     name_str = atom_to_list(Name),
-                     port     = rabbit_misc:format("~p", [Port]) },
+    State = #node_state { name     = Name,
+                          name_str = atom_to_list(Name),
+                          port     = rabbit_misc:format("~p", [Port]) },
     pang = net_adm:ping(Name), %% ASSERTION
     ok = clean_db(State),
     {ok, State}.
 
-handle_call(exit, _From, State = #state { name = Name }) ->
+handle_call(exit, _From, State = #node_state { name = Name }) ->
     ok = run_cmd("stop-node", State),
     ok = await_death(Name),
     ok = clean_db(State),
@@ -70,41 +70,41 @@ handle_call(exit, _From, State = #state { name = Name }) ->
 handle_call(Msg, From, State) ->
     {stop, {unhandled_call, Msg, From}, State}.
 
-handle_cast(delete, State = #state { name = Name }) ->
+handle_cast(delete, State = #node_state { name = Name }) ->
     pang = net_adm:ping(Name), %% ASSERTION
     ok = clean_db(State),
     {stop, normal, State};
-handle_cast(reset, State = #state { name = Name }) ->
+handle_cast(reset, State = #node_state { name = Name }) ->
     pang = net_adm:ping(Name), %% ASSERTION
     ok = clean_db(State),
     {noreply, State};
-handle_cast(start, State = #state { name = Name }) ->
+handle_cast(start, State = #node_state { name = Name }) ->
     pang = net_adm:ping(Name), %% ASSERTION
     ok = run_bg_cmd("run", "-noinput", State),
     ok = await_life(Name),
     {noreply, State};
-handle_cast(stop, State = #state { name = Name }) ->
+handle_cast(stop, State = #node_state { name = Name }) ->
     pong = net_adm:ping(Name),
     ok = run_cmd("stop-node", State),
     ok = await_death(Name),
     {noreply, State};
-handle_cast({start_with_config, Config}, State = #state { name     = Name,
-                                                          name_str = NameStr }) ->
+handle_cast({start_with_config, Config},
+            State = #node_state { name = Name, name_str = NameStr }) ->
     ok = store_external_cluster_config(NameStr, Config),
     ok = run_bg_cmd("run", "-rabbitmq_clusterer config \\\\\\\"" ++
                          external_config_file(NameStr) ++ "\\\\\\\" -noinput",
                      State),
     ok = await_life(Name),
     {noreply, State};
-handle_cast({apply_config, Config}, State = #state { name     = Name,
-                                                     name_str = NameStr }) ->
+handle_cast({apply_config, Config},
+            State = #node_state { name = Name, name_str = NameStr }) ->
     pong = net_adm:ping(Name),
     ok = store_external_cluster_config(NameStr, Config),
     ok = ctl("eval 'rabbit_clusterer:apply_config(\"" ++
                  external_config_file(NameStr) ++ "\").'", State),
     {noreply, State};
-handle_cast({stable_state, Ref, From}, State = #state { name     = Name,
-                                                        name_str = NameStr}) ->
+handle_cast({stable_state, Ref, From},
+            State = #node_state { name = Name, name_str = NameStr}) ->
     Result =
         try
             case rabbit_clusterer_coordinator:request_status(Name) of
@@ -192,7 +192,7 @@ is_reset(NameStr) when is_list(NameStr) ->
 external_config_file(NameStr) when is_list(NameStr) ->
     mnesia_dir(NameStr) ++ "-external-cluster.config".
 
-ctl(Action, #state { name_str = NameStr }) ->
+ctl(Action, #node_state { name_str = NameStr }) ->
     Cmd = lists:flatten([filename:join(makefile_dir(), "scripts/rabbitmqctl"),
                          " -n '",
                          NameStr, "' ", Action, " ; echo $?"]),
@@ -201,7 +201,7 @@ ctl(Action, #state { name_str = NameStr }) ->
     "0" = LastLine, %% ASSERTION
     ok.
 
-run_cmd(Action, #state { name_str = NameStr, port = Port }) ->
+run_cmd(Action, #node_state { name_str = NameStr, port = Port }) ->
     Cmd = lists:flatten(["RABBITMQ_NODENAME=",
                          NameStr,
                          " RABBITMQ_NODE_PORT=",
@@ -216,7 +216,7 @@ run_cmd(Action, #state { name_str = NameStr, port = Port }) ->
     "0" = LastLine, %% ASSERTION
     ok.
 
-run_bg_cmd(Action, StartArgs, #state { name_str = NameStr, port = Port }) ->
+run_bg_cmd(Action, StartArgs, #node_state { name_str = NameStr, port = Port }) ->
     Log = mnesia_dir(NameStr),
     Cmd = lists:flatten(["RABBITMQ_NODENAME=",
                          NameStr,
@@ -236,7 +236,7 @@ run_bg_cmd(Action, StartArgs, #state { name_str = NameStr, port = Port }) ->
     os:cmd(Cmd),
     ok.
 
-clean_db(State = #state { name_str = NameStr }) ->
+clean_db(State = #node_state { name_str = NameStr }) ->
     ok = run_cmd("cleandb", State),
     case file:delete(mnesia_dir(NameStr) ++ "-cluster.config") of
         ok              -> ok;
