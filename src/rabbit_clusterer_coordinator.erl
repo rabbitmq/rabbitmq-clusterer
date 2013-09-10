@@ -146,7 +146,10 @@ handle_call({apply_config, NewConfig}, From,
             {noreply, transitioner_event(
                         {new_config, NewConfig1, undefined}, State)};
         {{ok, NewConfig1}, _} ->
+            ReadyNotRunning = Status =:= ready andalso not rabbit:is_running(),
             case rabbit_clusterer_config:compare(NewConfig1, Config) of
+                younger when ReadyNotRunning ->
+                           {reply, {rabbit_not_running, NewConfig1}, State};
                 younger -> gen_server:reply(
                              From, {beginning_transition_to_provided_config,
                                     NewConfig1}),
@@ -241,12 +244,19 @@ handle_cast({new_config, ConfigRemote, Node},
     %% deadlock.
     {noreply, transitioner_event({new_config, ConfigRemote, Node}, State)};
 handle_cast({new_config, ConfigRemote, Node},
-            State = #state { node_id = NodeID,
+            State = #state { status  = Status,
+                             node_id = NodeID,
                              config  = Config }) ->
     %% Status is either ready or pending_shutdown. In both cases, we
     %% a) know what our config really is; b) it's safe to begin
     %% transitions to other configurations.
+    ReadyNotRunning = Status =:= ready andalso not rabbit:is_running(),
     case rabbit_clusterer_config:compare(ConfigRemote, Config) of
+        younger when ReadyNotRunning ->
+                   %% Something has stopped Rabbit. Maybe the
+                   %% partition handler. Thus we're going to refuse to
+                   %% do anything for the time being.
+                   {noreply, State};
         younger -> %% Remote is younger. We should switch to it. We
                    %% deliberately do not merge across the configs at
                    %% this stage as it would break is_compatible.
@@ -278,6 +288,10 @@ handle_cast(rabbit_booted, State = #state { status = preboot }) ->
     error_logger:error_msg(Msg, []),
     io:format(Msg, []),
     init:stop(),
+    {noreply, State};
+handle_cast(rabbit_booted, State = #state { status = ready }) ->
+    %% This can happen if the partition handler stopped and then
+    %% restarted rabbit.
     {noreply, State};
 
 handle_cast({lock, Locker}, State = #state { comms = undefined }) ->
