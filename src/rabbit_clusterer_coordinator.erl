@@ -95,7 +95,7 @@ handle_call({request_status, NewNode, NewNodeID}, _From,
             State = #state { status  = Status,
                              node_id = NodeID,
                              config  = Config }) ->
-    %% Status \in {pending_shutdown, booting, ready}
+    %% Status \in {booting, ready}
     %%
     %% Consider we're running (ready) and we're already clustered with
     %% NewNode, though it's currently down and is just coming back up,
@@ -119,8 +119,7 @@ handle_call({request_status, NewNode, NewNodeID}, _From,
                   {true,  _Config} -> Config;
                   {false, Config2} -> Config2
               end,
-    {reply, {Config1, Status},
-     reschedule_shutdown(State #state { config = Config1 })};
+    {reply, {Config1, Status}, State #state { config = Config1 }};
 
 %% This is where a call from the transitioner on one node to the
 %% transitioner on another node lands.
@@ -134,8 +133,7 @@ handle_call({{transitioner, _TKind}, _Msg}, _From, State) ->
 handle_call({apply_config, NewConfig}, From,
             State = #state { status = Status,
                              config = Config })
-  when Status =:= ready orelse Status =:= pending_shutdown
-       orelse ?IS_TRANSITIONER(Status) ->
+  when Status =:= ready orelse ?IS_TRANSITIONER(Status) ->
     case {rabbit_clusterer_config:load(NewConfig), Status} of
         {{ok, NewConfig1}, {transitioner, _}} ->
             %% We have to defer to the transitioner here which means
@@ -145,7 +143,7 @@ handle_call({apply_config, NewConfig}, From,
             gen_server:reply(From, transition_in_progress_ok),
             {noreply, transitioner_event(
                         {new_config, NewConfig1, undefined}, State)};
-        {{ok, NewConfig1}, _} ->
+        {{ok, NewConfig1}, ready} ->
             ReadyNotRunning = Status =:= ready andalso not rabbit:is_running(),
             case rabbit_clusterer_config:compare(NewConfig1, Config) of
                 younger when ReadyNotRunning ->
@@ -244,15 +242,14 @@ handle_cast({new_config, ConfigRemote, Node},
     %% deadlock.
     {noreply, transitioner_event({new_config, ConfigRemote, Node}, State)};
 handle_cast({new_config, ConfigRemote, Node},
-            State = #state { status  = Status,
+            State = #state { status  = ready,
                              node_id = NodeID,
                              config  = Config }) ->
-    %% Status is either ready or pending_shutdown. In both cases, we
-    %% a) know what our config really is; b) it's safe to begin
+    %% We a) know what our config really is; b) it's safe to begin
     %% transitions to other configurations.
-    ReadyNotRunning = Status =:= ready andalso not rabbit:is_running(),
+    Running = rabbit:is_running(),
     case rabbit_clusterer_config:compare(ConfigRemote, Config) of
-        younger when ReadyNotRunning ->
+        younger when not Running ->
                    %% Something has stopped Rabbit. Maybe the
                    %% partition handler. Thus we're going to refuse to
                    %% do anything for the time being.
@@ -269,9 +266,8 @@ handle_cast({new_config, ConfigRemote, Node},
                    ok = rabbit_clusterer_config:store_internal(
                           NodeID, Config1),
                    {noreply, State #state { config = Config1 }};
-        invalid -> %% Whilst invalid, the fact is that we are stable -
-                   %% either ready or pending_shutdown, so we don't
-                   %% want to disturb that.
+        invalid -> %% Whilst invalid, the fact is that we are ready,
+                   %% so we don't want to disturb that.
                    {noreply, State}
     end;
 
@@ -313,16 +309,6 @@ handle_cast(Msg, State) ->
 %%----------------
 %% Info
 %%----------------
-
-handle_info({shutdown, Ref},
-            State = #state { status             = pending_shutdown,
-                             transitioner_state = {shutdown, Ref} }) ->
-    %% This is the timer coming back to us. We actually need to halt
-    %% the VM here (which set_status does).
-    {stop, normal, set_status(shutdown, State)};
-handle_info({shutdown, _Ref}, State) ->
-    %% Something saved us in the meanwhilst!
-    {noreply, State};
 
 handle_info({transitioner_delay, Event},
             State = #state { status = {transitioner, _} }) ->
@@ -380,29 +366,17 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 %% Here we enforce the state machine of valid changes to status.
 
 %% preboot           -> a transitioner ({transitioner, TKind})
-%% preboot           -> pending_shutdown
-%% {transitioner, _} -> a transitioner
-%% {transitioner, _} -> pending_shutdown
+%% preboot           -> shutdown
 %% {transitioner, _} -> booting
-%% pending_shutdown  -> shutdown
-%% pending_shutdown  -> pending_shutdown
-%% pending_shutdown  -> a transitioner
+%% {transitioner, _} -> a transitioner
+%% {transitioner, _} -> shutdown
 %% booting           -> ready
-%% ready             -> pending_shutdown
+%% ready             -> a transitioner
+%% ready             -> shutdown
 
 set_status(NewStatus, State = #state { status = Status })
-  when ?IS_TRANSITIONER(NewStatus) andalso (Status =:= preboot orelse
-                                            ?IS_TRANSITIONER(Status) orelse
-                                            Status =:= pending_shutdown) ->
+  when ?IS_TRANSITIONER(NewStatus) andalso Status =/= booting ->
     State #state { status = NewStatus };
-set_status(pending_shutdown, State = #state { status = ready }) ->
-    %% Even though we think we're ready, there might still be some
-    %% rabbit boot actions going on...
-    ok = stop_rabbit(),
-    State #state { status = pending_shutdown };
-set_status(pending_shutdown, State = #state { status = Status })
-  when Status =/= booting ->
-    State #state { status = pending_shutdown };
 set_status(booting, State = #state { status  = {transitioner, _},
                                      booted  = Booted,
                                      node_id = NodeID,
@@ -418,7 +392,14 @@ set_status(booting, State = #state { status  = {transitioner, _},
 set_status(ready, State = #state { status = booting }) ->
     error_logger:info_msg("Cluster achieved and Rabbit running.~n"),
     update_monitoring(State #state { status = ready });
-set_status(shutdown, State = #state { status = pending_shutdown }) ->
+set_status(shutdown, State = #state { status = Status })
+  when Status =/= booting ->
+    case Status of
+        ready -> %% Even though we think we're ready, there might
+                 %% still be some rabbit boot actions going on...
+                 ok = stop_rabbit();
+        _     -> ok
+    end,
     error_logger:info_msg("Clusterer stopping node now.~n"),
     init:stop(),
     State #state { status = shutdown }.
@@ -445,7 +426,8 @@ begin_transition(true,     NewConfig, State = #state { status  = ready,
       [rabbit_clusterer_config:to_proplist(NodeID, NewConfig)]),
     update_monitoring(State #state { config = NewConfig });
 begin_transition(false,    NewConfig, State = #state { status = ready }) ->
-    join_or_rejoin(join,   NewConfig, set_status(pending_shutdown, State));
+    ok = stop_rabbit(),
+    join_or_rejoin(join,   NewConfig, State);
 begin_transition(true,     NewConfig, State) ->
     join_or_rejoin(rejoin, NewConfig, State);
 begin_transition(false,    NewConfig, State) ->
@@ -484,8 +466,7 @@ process_transitioner_response({SuccessOrShutdown, ConfigNew},
     case SuccessOrShutdown of
         success  -> %% Wait for the ready transition before updating monitors
                     set_status(booting, State1);
-        shutdown -> stop_monitoring(
-                      schedule_shutdown(set_status(pending_shutdown, State1)))
+        shutdown -> set_status(shutdown, stop_monitoring(State1))
     end;
 process_transitioner_response({config_changed, ConfigNew}, State) ->
     %% begin_transition relies on unmerged configs, so don't merge
@@ -504,7 +485,7 @@ process_transitioner_response({invalid_config, Config},
                           "version numbers detected. Shutting down.~n~p~n",
                           [rabbit_clusterer_config:to_proplist(
                              NodeID, Config)]),
-    set_status(shutdown, set_status(pending_shutdown, State1)).
+    set_status(shutdown, State1).
 
 fresh_comms(State) ->
     State1 = stop_comms(State),
@@ -517,32 +498,14 @@ stop_comms(State = #state { comms = Token }) ->
     ok = rabbit_clusterer_comms:stop(Token),
     State #state { comms = undefined }.
 
-schedule_shutdown(State = #state { status = pending_shutdown,
-                                   config = Config }) ->
-    case rabbit_clusterer_config:shutdown_timeout(Config) of
-        infinity -> State #state { transitioner_state = undefined };
-        Timeout  -> Ref = make_ref(),
-                    erlang:send_after(Timeout*1000, self(), {shutdown, Ref}),
-                    State #state { transitioner_state = {shutdown, Ref} }
-    end;
-schedule_shutdown(State) ->
-    State.
-
-reschedule_shutdown(State = #state { status             = pending_shutdown,
-                                     transitioner_state = {shutdown, _Ref},
-                                     config             = Config }) ->
-    %% ASSERTION
-    true = rabbit_clusterer_config:shutdown_timeout(Config) =/= infinity,
-    schedule_shutdown(State);
-reschedule_shutdown(State) ->
-    State.
-
 %%----------------------------------------------------------------------------
 %% Helpers
 %%----------------------------------------------------------------------------
 
 stop_rabbit() ->
-    error_logger:info_msg("Clusterer stopping Rabbit pending shutdown.~n"),
+    %% This is not idempotent and always assumes that Rabbit should be
+    %% running (or at least booting) before being called.
+    error_logger:info_msg("Clusterer stopping Rabbit.~n"),
     ok = rabbit:await_startup(),
     ok = rabbit_clusterer_utils:stop_rabbit(),
     ok = rabbit_clusterer_utils:stop_mnesia(),
