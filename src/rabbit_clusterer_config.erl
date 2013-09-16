@@ -81,6 +81,7 @@ load_internal() ->
     end.
 
 store_internal(NodeID, Config) ->
+    ok = filelib:ensure_dir(filename:dirname(internal_path())),
     ok = rabbit_file:write_term_file(internal_path(),
                                      [to_proplist(NodeID, Config)]).
 
