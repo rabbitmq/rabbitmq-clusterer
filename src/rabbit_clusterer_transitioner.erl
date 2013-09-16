@@ -181,6 +181,17 @@ event({comms, {Replies, BadNodes}}, State = #state { kind     = rejoin,
                 [digraph:add_vertex(G, N) || N <- Nodes],
                 [digraph:add_edge(G, N, T) || {N, Awaiting} <- Replies1,
                                               T <- Awaiting],
+                %% We want to use the
+                %% digraph_utils:cyclic_strong_components/1 call as it
+                %% captures the general case nicely: it returns a list
+                %% of groups of nodes where each group is a set of
+                %% nodes which are dependent on each other. However,
+                %% for simple graphs with no loops at all, this call
+                %% can return an empty list. Rather than detect and
+                %% special case for that, we instead make every node
+                %% dependent on itself. For simple graphs, this will
+                %% result in each group returned being a single node.
+                [digraph:add_edge(G, N, N) || N <- Nodes],
                 CSC = digraph_utils:cyclic_strong_components(G),
                 [OurComponent] = [C || C <- CSC, lists:member(MyNode, C)],
                 %% Detect if there are any outbound edges from this
