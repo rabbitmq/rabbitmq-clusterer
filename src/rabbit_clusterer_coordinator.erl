@@ -4,6 +4,7 @@
 
 -export([begin_coordination/0,
          rabbit_booted/0,
+         rabbit_boot_failed/0,
          send_new_config/2,
          template_new_config/1,
          apply_config/1,
@@ -36,6 +37,8 @@ start_link() -> gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 begin_coordination() -> ok = gen_server:cast(?SERVER, begin_coordination).
 
 rabbit_booted() -> ok = gen_server:cast(?SERVER, rabbit_booted).
+
+rabbit_boot_failed() -> ok = gen_server:cast(?SERVER, rabbit_boot_failed).
 
 send_new_config(Config, Node) when is_atom(Node) ->
     %% Node may be undefined. gen_server:cast doesn't error. This is
@@ -275,7 +278,7 @@ handle_cast(rabbit_booted, State = #state { status = booting }) ->
     %% Note that we don't allow any transition to start whilst we're
     %% booting so it should be safe to assert we can only receive
     %% rabbit_booted when in booting.
-    {noreply, set_status(ready, State)};
+    {noreply, set_status(ready, State #state { booted = true })};
 handle_cast(rabbit_booted, State = #state { status = preboot }) ->
     %% Very likely they forgot to edit the rabbit-server
     %% script. Complain very loudly.
@@ -289,6 +292,9 @@ handle_cast(rabbit_booted, State = #state { status = ready }) ->
     %% This can happen if the partition handler stopped and then
     %% restarted rabbit.
     {noreply, State};
+
+handle_cast(rabbit_boot_failed, State = #state { status = booting }) ->
+    {noreply, set_status(booting, State)};
 
 handle_cast({lock, Locker}, State = #state { comms = undefined }) ->
     gen_server:cast(Locker, {lock_rejected, node()}),
@@ -371,24 +377,27 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 %% {transitioner, _} -> a transitioner
 %% {transitioner, _} -> shutdown
 %% booting           -> ready
+%% booting           -> booting
 %% ready             -> a transitioner
 %% ready             -> shutdown
 
 set_status(NewStatus, State = #state { status = Status })
   when ?IS_TRANSITIONER(NewStatus) andalso Status =/= booting ->
     State #state { status = NewStatus };
-set_status(booting, State = #state { status  = {transitioner, _},
+set_status(booting, State = #state { status  = Status,
                                      booted  = Booted,
                                      node_id = NodeID,
-                                     config  = Config }) ->
+                                     config  = Config })
+  when ?IS_TRANSITIONER(Status) orelse Status =:= booting ->
     error_logger:info_msg(
       "Clusterer booting Rabbit into cluster configuration:~n~p~n",
       [rabbit_clusterer_config:to_proplist(NodeID, Config)]),
+    PreSleep = Status =:= booting,
     case Booted of
-        true  -> ok = rabbit_clusterer_utils:start_rabbit_async();
-        false -> ok = rabbit_clusterer_utils:boot_rabbit_async()
+        true  -> ok = rabbit_clusterer_utils:start_rabbit_async(PreSleep);
+        false -> ok = rabbit_clusterer_utils:boot_rabbit_async(PreSleep)
     end,
-    State #state { status = booting, booted = true };
+    State #state { status = booting };
 set_status(ready, State = #state { status = booting }) ->
     error_logger:info_msg("Cluster achieved and Rabbit running.~n"),
     update_monitoring(State #state { status = ready });
