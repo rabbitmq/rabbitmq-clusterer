@@ -91,6 +91,14 @@ eliminate_mnesia_dependencies(NodesToDelete) ->
     [{atomic,ok} = mnesia:del_table_copy(schema, N) || N <- NodesToDelete],
     ok = rabbit_node_monitor:reset_cluster_status(),
     ok = stop_mnesia(),
+    %% We had to force load in case we had to delete any schemas. But
+    %% once we've stopped mnesia (and we have to because rabbit
+    %% upgrades expect to find mnesia stopped), mnesia seems to forget
+    %% that it's been force_loaded and thus should now really behave
+    %% as if it's the master. Consequently we have to touch the
+    %% force_load file in the mnesia dir which rabbit_mnesia then
+    %% finds and does another force load when rabbit actually boots.
+    ok = rabbit_file:write_file(filename:join(rabbit_mnesia:dir(), "force_load"), <<"">>),
     ok.
 
 configure_cluster(Nodes, MyNodeType) ->
