@@ -3,13 +3,23 @@
 This plugin provides an alternative means for creating and maintaining
 clusters of Rabbits.
 
+## Overview
+
+Traditional RabbitMQ clustering is not very friendly to infrastructure
+automation tools such as Chef, Puppet or BOSH. The
+existing tooling (`rabbitmqctl join_cluster` and friends) is
+imperative, requires more oversight and does not handle potentially
+random node boot order very well. The Clusterer has been specifically
+designed with automated deployment tools in mind.
+
 Unlike the existing tooling, the Clusterer is declarative and goal
 directed: you tell it the overall shape of the cluster you want to
-construct and the clusterer tries to achieve that. By contrast, the
-existing tooling (`rabbitmqctl join_cluster` and friends) is
-imperative, requires more oversight, and for these reasons is unsuited
-to automated deployment tools. The Clusterer has been specifically
-designed with automated deployment tools in mind.
+construct and the clusterer tries to achieve that. With the Clusterer,
+cluster configuration can be provided in a single location (e.g. a file
+on one of the nodes).
+
+
+## Compatibility With Traditional RabbitMQ Clustering
 
 The Clusterer is not compatible with the existing clustering
 tool-set. Do not use any of the `rabbitmqctl` commands relating to
@@ -28,11 +38,25 @@ it will be ignored.
 
 ## Installation
 
-As with all other plugins, you must put the `.ez` in the right
-directory and enable it. If you're running a development environment
-and want to link through from the `rabbitmq-server/plugins` directory,
-link to `rabbitmq-clusterer/dist/rabbitmq_clusterer-0.0.0.ez`. Do not
-just link to the `rabbitmq-clusterer` directory.
+As with all other plugins, you must put the plugin archive (`.ez`) in
+the right directory and enable the plugin with `rabbitmq-plugins`.
+
+### Building
+
+The Clusterer reuses parts of the RabbitMQ umbrella repository. Before
+building the plugin, make sure it is cloned as `rabbitmq-clusterer` under
+public umbrella.
+
+To build the plugin run `make`.
+
+### Linking in Development Environment
+
+If you're running a development environment and want to link through
+from the `rabbitmq-server/plugins` directory, link to
+`rabbitmq-clusterer/dist/rabbitmq_clusterer-0.0.0.ez`. Do not just
+link to the `rabbitmq-clusterer` directory.
+
+### rabbitmq-server Patch
 
 Because the Clusterer has to manage Rabbit itself, we have to make a
 change to the `rabbitmq-server/scripts/rabbitmq-server` script so that
@@ -44,7 +68,91 @@ environment, apply with:
     rabbitmq-server> patch -p1 < ../rabbitmq-clusterer/rabbitmq-server.patch
 
 
-## Cluster Configurations
+
+## Cluster Config Specification
+
+The Clusterer will communicate a new valid config to both all the
+nodes of its current config, and in addition to all the nodes in the
+new config. Even if the cluster is able to be formed in the absence of
+some nodes indicated in the config, the nodes of the cluster will
+continue to attempt to make contact with any missing nodes and will
+pass the config to them if and when they eventually appear.
+
+All of which means that you generally only need to supply new configs
+to a single node of any cluster. There is no harm in doing more than
+this. The Clusterer stores on disk the currently applied config (it
+stores this next to the mnesia directory Rabbit uses for all its
+persistent data) and so if a node goes down, it will have a record of
+the config in operation when it was last up. When it comes back up, it
+will attempt to rejoin that cluster, regardless of whether this node
+was ever explicitly given this config.
+
+There are a couple of ways to specify a cluster config: via an external
+file or inline.
+
+### Using External Config File
+
+In a `rabbitmq_clusterer` section in `rabbitmq.config` file you
+can add a `config` entry that is a path to configuration file.
+
+For example:
+  
+      [{rabbitmq_clusterer,
+          [{config, "/path/to/my/cluster.config"}]
+       }].
+    
+Like with `rabbitmq.config` or any other Erlang terms file,
+the dot at the end is mandatory.
+
+### Using Inline Configuration in rabbitmq.config
+
+It is possible to provide cluster configuration in `rabbitmq.config`
+like so:
+
+      [{rabbitmq_clusterer,
+          [{config,
+              [{version, 43},
+               {nodes, [{rabbit@hostA, disc}, {rabbit@hostB, ram}, {rabbit@hostD, disc}]},
+               {gospel, {node, rabbit@hostD}}
+           }]
+       }].
+
+This approach makes configuration management with tools such as Chef somewhat
+less convenient, so external configuration file is the recommended option.
+
+
+### Using rabbitmqctl eval
+
+`rabbitmqctl eval 'rabbit_clusterer:apply_config().'`
+
+**This will only have any effect if there is an entry in the
+`rabbitmq.config` file for the Clusterer as above, and a path is
+specified as the value rather than a config directly.**
+
+If that is the case, then this will cause the node to reload the
+file containing cluster config and apply it. Note that you cannot
+change the path itself in the `rabbitmq.config` file dynamically:
+neither Rabbit nor the Clusterer will pick up any changes to that
+file without restarting the whole Erlang node.
+
+`rabbitmqctl eval 'rabbit_clusterer:apply_config("/path/to/my/other/cluster.config").'`
+
+This will cause the Clusterer to attempt to load the indicated file
+as a cluster config and apply it. Using this method rather than the
+above allows the path to change dynamically and does not depend on
+any entries in the `rabbitmq.config` file. The path provided here is
+not retained in any way: providing the path here does not influence
+future calls to `rabbit_clusterer:apply_config().` - using
+`rabbit_clusterer:apply_config().` *always* attempts to inspect the
+path as found in `rabbitmq.config` when the node was started.
+
+Note if you really want to, rather than suppling a path to a file,
+you can supply the cluster config as a proplist directly, just as
+you can in the `rabbitmq.config` file itself.
+
+
+
+## Cluster Configuration
 
 A cluster config is an Erlang proplist consisting of just four
 tuples. The config can be supplied to Rabbit in a variety of ways and
@@ -163,75 +271,6 @@ and running, at which point it could sync with that node.
       held by the new younger *A*, and so *B* and *C* will reset as
       necessary.
 
-
-## Applying cluster configs
-
-The Clusterer will communicate a new valid config to both all the
-nodes of its current config, and in addition to all the nodes in the
-new config. Even if the cluster is able to be formed in the absence of
-some nodes indicated in the config, the nodes of the cluster will
-continue to attempt to make contact with any missing nodes and will
-pass the config to them if and when they eventually appear.
-
-All of which means that you generally only need to supply new configs
-to a single node of any cluster. There is no harm in doing more than
-this. The Clusterer stores on disk the currently applied config (it
-stores this next to the mnesia directory Rabbit uses for all its
-persistent data) and so if a node goes down, it will have a record of
-the config in operation when it was last up. When it comes back up, it
-will attempt to rejoin that cluster, regardless of whether this node
-was ever explicitly given this config.
-
-There are a couple of ways to specify a cluster config:
-
-* The `rabbitmq.config` file. In a `rabbitmq_clusterer` section you
-  can add a `config` entry. This can be either a path to a file
-  containing the config, or a config itself:
-  
-      [{rabbitmq_clusterer,
-          [{config, "/path/to/my/cluster.config"}]
-       }].
-  
-  or
-  
-      [{rabbitmq_clusterer,
-          [{config,
-              [{version, 43},
-               {nodes, [{rabbit@hostA, disc}, {rabbit@hostB, ram}, {rabbit@hostD, disc}]},
-               {gospel, {node, rabbit@hostD}}
-           }]
-       }].
-  
-  Do not forget the dot on the end, either in the `rabbitmq.config`
-  file, or on the cluster config if you provide the cluster config in
-  a separate file.
-
-* `rabbitmqctl eval 'rabbit_clusterer:apply_config().'`
-  
-  **This will only have any effect if there is an entry in the
-  `rabbitmq.config` file for the Clusterer as above, and a path is
-  specified as the value rather than a config directly.**
-  
-  If that is the case, then this will cause the node to reload the
-  file containing cluster config and apply it. Note that you cannot
-  change the path itself in the `rabbitmq.config` file dynamically:
-  neither Rabbit nor the Clusterer will pick up any changes to that
-  file without restarting the whole Erlang node.
-
-* `rabbitmqctl eval 'rabbit_clusterer:apply_config("/path/to/my/other/cluster.config").'`
-  
-  This will cause the Clusterer to attempt to load the indicated file
-  as a cluster config and apply it. Using this method rather than the
-  above allows the path to change dynamically and does not depend on
-  any entries in the `rabbitmq.config` file. The path provided here is
-  not retained in any way: providing the path here does not influence
-  future calls to `rabbit_clusterer:apply_config().` - using
-  `rabbit_clusterer:apply_config().` *always* attempts to inspect the
-  path as found in `rabbitmq.config` when the node was started.
-  
-  Note if you really want to, rather than suppling a path to a file,
-  you can supply the cluster config as a proplist directly, just as
-  you can in the `rabbitmq.config` file itself.
 
 
 ### Mistakes in config files
