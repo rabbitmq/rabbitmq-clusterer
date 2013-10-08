@@ -88,12 +88,12 @@ handle_call({request_status, _Node, _NodeID}, _From,
     %% even started reading in our cluster configs. We need to "ignore"
     %% them. They'll either wait for us, or they'll start up and bring
     %% us in later on anyway.
-    {reply, preboot, State};
+    reply(preboot, State);
 handle_call({request_status, NewNode, NewNodeID}, From,
             State = #state { status = Status = {transitioner, _} }) ->
     Fun = fun (Config) -> gen_server:reply(From, {Config, Status}), ok end,
-    {noreply, transitioner_event(
-                {request_config, NewNode, NewNodeID, Fun}, State)};
+    noreply(transitioner_event(
+              {request_config, NewNode, NewNodeID, Fun}, State));
 handle_call({request_status, NewNode, NewNodeID}, _From,
             State = #state { status  = Status,
                              node_id = NodeID,
@@ -122,16 +122,16 @@ handle_call({request_status, NewNode, NewNodeID}, _From,
                   {true,  _Config} -> Config;
                   {false, Config2} -> Config2
               end,
-    {reply, {Config1, Status}, State #state { config = Config1 }};
+    reply({Config1, Status}, State #state { config = Config1 });
 
 %% This is where a call from the transitioner on one node to the
 %% transitioner on another node lands.
 handle_call({{transitioner, _TKind} = Status, Msg}, From,
             State = #state { status = Status }) ->
     Fun = fun (Result) -> gen_server:reply(From, Result), ok end,
-    {noreply, transitioner_event({Msg, Fun}, State)};
+    noreply(transitioner_event({Msg, Fun}, State));
 handle_call({{transitioner, _TKind}, _Msg}, _From, State) ->
-    {reply, invalid, State};
+    reply(invalid, State);
 
 handle_call({apply_config, NewConfig}, From,
             State = #state { status = Status,
@@ -144,32 +144,32 @@ handle_call({apply_config, NewConfig}, From,
             %% mind. The transitioner will do the comparison for us
             %% with whatever it's currently trying to transition to.
             gen_server:reply(From, transition_in_progress_ok),
-            {noreply, transitioner_event(
-                        {new_config, NewConfig1, undefined}, State)};
+            noreply(transitioner_event(
+                      {new_config, NewConfig1, undefined}, State));
         {{ok, NewConfig1}, ready} ->
             ReadyNotRunning = Status =:= ready andalso not rabbit:is_running(),
             case rabbit_clusterer_config:compare(NewConfig1, Config) of
                 younger when ReadyNotRunning ->
-                           {reply, {rabbit_not_running, NewConfig1}, State};
+                           reply({rabbit_not_running, NewConfig1}, State);
                 younger -> gen_server:reply(
                              From, {beginning_transition_to_provided_config,
                                     NewConfig1}),
-                           {noreply, begin_transition(NewConfig1, State)};
-                older   -> {reply, {provided_config_is_older_than_current,
-                                    NewConfig1, Config}, State};
-                coeval  -> {reply, {provided_config_already_applied,
-                                    NewConfig1}, State};
+                           noreply(begin_transition(NewConfig1, State));
+                older   -> reply({provided_config_is_older_than_current,
+                                  NewConfig1, Config}, State);
+                coeval  -> reply({provided_config_already_applied,
+                                  NewConfig1}, State);
                 invalid ->
-                    {reply,
-                     {provided_config_has_same_version_but_differs_from_current,
-                      NewConfig1, Config}, State}
+                    reply(
+                      {provided_config_has_same_version_but_differs_from_current,
+                       NewConfig1, Config}, State)
             end;
         {{error, Reason}, _} ->
-            {reply, {invalid_config_specification, NewConfig, Reason}, State}
+            reply({invalid_config_specification, NewConfig, Reason}, State)
     end;
 handle_call({apply_config, _Config}, _From,
             State = #state { status = Status }) ->
-    {reply, {cannot_apply_config_currently, Status}, State};
+    reply({cannot_apply_config_currently, Status}, State);
 
 %% anything else kills us
 handle_call(Msg, From, State) ->
@@ -184,21 +184,21 @@ handle_cast(begin_coordination, State = #state { status  = preboot,
                                                  config  = Config }) ->
     {NewNodeID, NewConfig, OldConfig} = rabbit_clusterer_config:load(
                                           NodeID, Config),
-    {noreply,
-     begin_transition(NewConfig, State #state { node_id = NewNodeID,
-                                                config  = OldConfig })};
+    noreply(
+      begin_transition(NewConfig, State #state { node_id = NewNodeID,
+                                                 config  = OldConfig }));
 handle_cast(begin_coordination, State) ->
-    {noreply, State};
+    noreply(State);
 
 handle_cast({comms, Comms, Result},
             State = #state { comms = Comms, status = {transitioner, _} }) ->
     %% This is a response from the comms process coming back to the
     %% transitioner
-    {noreply, transitioner_event({comms, Result}, State)};
+    noreply(transitioner_event({comms, Result}, State));
 handle_cast({comms, _Comms, _Result}, State) ->
     %% Ignore it - either we're not transitioning, or it's from an old
     %% comms pid.
-    {noreply, State};
+    noreply(State);
 
 %% new_config is sent to update nodes that we come across through some
 %% means that we think they're running an old config and should be
@@ -216,7 +216,7 @@ handle_cast({new_config, _ConfigRemote, Node},
     %%
     %% Don't worry about dupes, we'll filter them out when we come to
     %% deal with the list.
-    {noreply, State #state { nodes = [Node | Nodes] }};
+    noreply(State #state { nodes = [Node | Nodes] });
 handle_cast({new_config, ConfigRemote, Node},
             State = #state { status  = booting,
                              nodes   = Nodes,
@@ -232,8 +232,8 @@ handle_cast({new_config, ConfigRemote, Node},
                               Node, ConfigRemote, NodeID, Config),
                   ok = rabbit_clusterer_config:store_internal(
                          NodeID, Config1),
-                  {noreply, State #state { config = Config1 }};
-        _      -> {noreply, State #state { nodes = [Node | Nodes] }}
+                  noreply(State #state { config = Config1 });
+        _      -> noreply(State #state { nodes = [Node | Nodes] })
     end;
 handle_cast({new_config, ConfigRemote, Node},
             State = #state { status = {transitioner, _} }) ->
@@ -243,7 +243,7 @@ handle_cast({new_config, ConfigRemote, Node},
     %% that has become available that we should be transitioning
     %% to. If we don't deal with this we can potentially have a
     %% deadlock.
-    {noreply, transitioner_event({new_config, ConfigRemote, Node}, State)};
+    noreply(transitioner_event({new_config, ConfigRemote, Node}, State));
 handle_cast({new_config, ConfigRemote, Node},
             State = #state { status  = ready,
                              node_id = NodeID,
@@ -256,29 +256,29 @@ handle_cast({new_config, ConfigRemote, Node},
                    %% Something has stopped Rabbit. Maybe the
                    %% partition handler. Thus we're going to refuse to
                    %% do anything for the time being.
-                   {noreply, State};
+                   noreply(State);
         younger -> %% Remote is younger. We should switch to it. We
                    %% deliberately do not merge across the configs at
                    %% this stage as it would break is_compatible.
                    %% begin_transition will reboot if necessary.
-                   {noreply, begin_transition(ConfigRemote, State)};
+                   noreply(begin_transition(ConfigRemote, State));
         older   -> ok = send_new_config(Config, Node),
-                   {noreply, State};
+                   noreply(State);
         coeval  -> Config1 = rabbit_clusterer_config:update_node_id(
                                Node, ConfigRemote, NodeID, Config),
                    ok = rabbit_clusterer_config:store_internal(
                           NodeID, Config1),
-                   {noreply, State #state { config = Config1 }};
+                   noreply(State #state { config = Config1 });
         invalid -> %% Whilst invalid, the fact is that we are ready,
                    %% so we don't want to disturb that.
-                   {noreply, State}
+                   noreply(State)
     end;
 
 handle_cast(rabbit_booted, State = #state { status = booting }) ->
     %% Note that we don't allow any transition to start whilst we're
     %% booting so it should be safe to assert we can only receive
     %% rabbit_booted when in booting.
-    {noreply, set_status(ready, State #state { booted = true })};
+    noreply(set_status(ready, State #state { booted = true }));
 handle_cast(rabbit_booted, State = #state { status = preboot }) ->
     %% Very likely they forgot to edit the rabbit-server
     %% script. Complain very loudly.
@@ -287,26 +287,26 @@ handle_cast(rabbit_booted, State = #state { status = preboot }) ->
     error_logger:error_msg(Msg, []),
     io:format(Msg, []),
     init:stop(),
-    {noreply, State};
+    {stop, startup_error, State};
 handle_cast(rabbit_booted, State = #state { status = ready }) ->
     %% This can happen if the partition handler stopped and then
     %% restarted rabbit.
-    {noreply, State};
+    noreply(State);
 
 handle_cast(rabbit_boot_failed, State = #state { status = booting }) ->
-    {noreply, set_status(booting, State)};
+    noreply(set_status(booting, State));
 
 handle_cast({lock, Locker}, State = #state { comms = undefined }) ->
     gen_server:cast(Locker, {lock_rejected, node()}),
-    {noreply, State};
+    noreply(State);
 handle_cast({lock, Locker}, State = #state { comms = Comms }) ->
     ok = rabbit_clusterer_comms:lock(Locker, Comms),
-    {noreply, State};
+    noreply(State);
 handle_cast({unlock, _Locker}, State = #state { comms = undefined }) ->
-    {noreply, State};
+    noreply(State);
 handle_cast({unlock, Locker}, State = #state { comms = Comms }) ->
     ok = rabbit_clusterer_comms:unlock(Locker, Comms),
-    {noreply, State};
+    noreply(State);
 
 %% anything else kills us
 handle_cast(Msg, State) ->
@@ -321,18 +321,18 @@ handle_info({transitioner_delay, Event},
     %% A transitioner wanted some sort of timer based callback. Note
     %% it is the transitioner's responsibility to filter out
     %% invalid/outdated etc delayed events.
-    {noreply, transitioner_event(Event, State)};
+    noreply(transitioner_event(Event, State));
 handle_info({transitioner_delay, _Event}, State) ->
-    {noreply, State};
+    noreply(State);
 
 %% Monitoring stuff
 handle_info({'DOWN', MRef, process, {?SERVER, Node}, _Info},
             State = #state { alive_mrefs = Alive, dead = Dead }) ->
     case lists:delete(MRef, Alive) of
-        Alive  -> {noreply, State};
-        Alive1 -> {noreply, ensure_poke_timer(
-                              State #state { alive_mrefs = Alive1,
-                                             dead        = [Node | Dead] })}
+        Alive  -> noreply(State);
+        Alive1 -> noreply(ensure_poke_timer(
+                            State #state { alive_mrefs = Alive1,
+                                           dead        = [Node | Dead] }))
     end;
 handle_info(poke_the_dead, State = #state { dead        = Dead,
                                             alive_mrefs = Alive,
@@ -347,11 +347,11 @@ handle_info(poke_the_dead, State = #state { dead        = Dead,
     MRefsNew = [monitor(process, {?SERVER, N}) || N <- Dead],
     ok = send_new_config(Config, Dead),
     Alive1 = MRefsNew ++ Alive,
-    {noreply, State #state { dead           = [],
-                             alive_mrefs    = Alive1,
-                             poke_timer_ref = undefined }};
+    noreply(State #state { dead           = [],
+                           alive_mrefs    = Alive1,
+                           poke_timer_ref = undefined });
 handle_info(poke_the_dead, State) ->
-    {noreply, State #state { poke_timer_ref = undefined }};
+    noreply(State #state { poke_timer_ref = undefined });
 
 %% anything else kills us
 handle_info(Msg, State) ->
@@ -412,6 +412,16 @@ set_status(shutdown, State = #state { status = Status })
     error_logger:info_msg("Clusterer stopping node now.~n"),
     init:stop(),
     State #state { status = shutdown }.
+
+noreply(State = #state { status = shutdown }) ->
+    {stop, normal, State};
+noreply(State) ->
+    {noreply, State}.
+
+reply(Reply, State = #state { status = shutdown }) ->
+    {stop, normal, Reply, State};
+reply(Reply, State) ->
+    {reply, Reply, State}.
 
 %%----------------------------------------------------------------------------
 %% Changing cluster config
