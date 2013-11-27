@@ -113,7 +113,7 @@ like so:
           [{config,
               [{version, 43},
                {nodes, [{rabbit@hostA, disc}, {rabbit@hostB, ram}, {rabbit@hostD, disc}]},
-               {gospel, {node, rabbit@hostD}}
+               {gospel, {node, rabbit@hostD}}]
            }]
        }].
 
