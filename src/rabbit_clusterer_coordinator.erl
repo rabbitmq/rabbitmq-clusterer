@@ -294,6 +294,7 @@ handle_cast(rabbit_booted, State = #state { status = ready }) ->
     noreply(State);
 
 handle_cast(rabbit_boot_failed, State = #state { status = booting }) ->
+    ok = rabbit_clusterer_utils:stop_mnesia(),
     noreply(set_status(booting, State));
 
 handle_cast({lock, Locker}, State = #state { comms = undefined }) ->
