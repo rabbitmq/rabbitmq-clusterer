@@ -2,7 +2,7 @@
 
 -export([init/4, event/2]).
 
--record(state, { kind, status, node_id, config, comms, awaiting, joining }).
+-record(state, { kind, status, node_id, config, comms, awaiting, eliminable }).
 
 %% Concerns for join:
 %%
@@ -112,12 +112,12 @@ init(Kind, NodeID, Config, Comms) ->
                         Kind =:= join andalso
                         rabbit_clusterer_config:gospel(Config) =:= reset),
                  {success, Config};
-        false -> request_status(#state { kind     = Kind,
-                                         node_id  = NodeID,
-                                         config   = Config,
-                                         comms    = Comms,
-                                         awaiting = undefined,
-                                         joining  = [] })
+        false -> request_status(#state { kind       = Kind,
+                                         node_id    = NodeID,
+                                         config     = Config,
+                                         comms      = Comms,
+                                         awaiting   = undefined,
+                                         eliminable = [] })
     end.
 
 event({comms, {Replies, BadNodes}}, State = #state { kind    = Kind,
@@ -217,11 +217,11 @@ event({comms, lock_rejected}, State = #state { kind   = rejoin,
     %% Oh, well let's just wait and try again. Something must have
     %% changed.
     delayed_request_status(State);
-event({comms, lock_ok}, #state { kind    = rejoin,
-                                 status  = awaiting_lock,
-                                 config  = Config,
-                                 joining = Joining }) ->
-    ok = rabbit_clusterer_utils:eliminate_mnesia_dependencies(Joining),
+event({comms, lock_ok}, #state { kind       = rejoin,
+                                 status     = awaiting_lock,
+                                 config     = Config,
+                                 eliminable = Eliminable }) ->
+    ok = rabbit_clusterer_utils:eliminate_mnesia_dependencies(Eliminable),
     {success, Config};
 
 event({request_awaiting, Fun}, State = #state { kind     = rejoin,
@@ -390,7 +390,7 @@ maybe_rejoin(BadNodes, StatusDict, State = #state { config = Config }) ->
             %% We're ram; can't do anything but wait for someone else
             delayed_request_status(State);
         true ->
-            {_All, _Disc, Running} = rabbit_node_monitor:read_cluster_status(),
+            {All, _Disc, Running} = rabbit_node_monitor:read_cluster_status(),
             DiscSet = ordsets:from_list(
                         rabbit_clusterer_config:disc_nodenames(Config)),
             %% Intersect with Running and remove MyNode
@@ -403,10 +403,15 @@ maybe_rejoin(BadNodes, StatusDict, State = #state { config = Config }) ->
                           {ok, List} -> List;
                           error      -> []
                       end,
-            NotJoiningSet = ordsets:subtract(
-                              DiscRunningSet, ordsets:from_list(Joining)),
-            State1 = State #state { awaiting = ordsets:to_list(NotJoiningSet),
-                                    joining  = Joining },
+            JoiningSet = ordsets:from_list(Joining),
+            NotJoiningSet = ordsets:subtract(DiscRunningSet, JoiningSet),
+            DeletedSet =
+                ordsets:subtract(
+                  ordsets:from_list(All),
+                  ordsets:from_list(rabbit_clusterer_config:nodenames(Config))),
+            EliminableSet = ordsets:union(JoiningSet, DeletedSet),
+            State1 = State #state { awaiting   = ordsets:to_list(NotJoiningSet),
+                                    eliminable = ordsets:to_list(EliminableSet) },
             case ordsets:is_disjoint(DiscRunningSet, BadNodesSet) of
                 true ->
                     %% Everyone we depend on is alive in some form.

@@ -89,7 +89,7 @@ eliminate_mnesia_dependencies(NodesToDelete) ->
     %% del_table_copy has to be done after the force_load but is also
     %% usefully idempotent.
     [{atomic,ok} = mnesia:del_table_copy(schema, N) || N <- NodesToDelete],
-    ok = rabbit_node_monitor:reset_cluster_status(),
+    ok = remove_from_cluster_status(NodesToDelete),
     ok = stop_mnesia(),
     %% We had to force load in case we had to delete any schemas. But
     %% once we've stopped mnesia (and we have to because rabbit
@@ -107,3 +107,13 @@ configure_cluster(Nodes, MyNodeType) ->
         {error, {already_loaded, rabbit}} -> ok
     end,
     ok = application:set_env(rabbit, cluster_nodes, {Nodes, MyNodeType}).
+
+remove_from_cluster_status(Nodes) ->
+    try
+        {All, Disc, Running} = rabbit_node_monitor:read_cluster_status(),
+        ok = rabbit_node_monitor:write_cluster_status(
+               {All -- Nodes, Disc -- Nodes, Running -- Nodes})
+    catch
+        {error, {corrupt_or_missing_cluster_files, _Stat, _Run}} ->
+            ok = rabbit_node_monitor:reset_cluster_status()
+    end.
