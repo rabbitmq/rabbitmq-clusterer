@@ -388,7 +388,6 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 %% booting           -> booting
 %% ready             -> a transitioner
 %% ready             -> shutdown
-%% ready             -> booting
 
 set_status(NewStatus, State = #state { status = Status })
   when ?IS_TRANSITIONER(NewStatus) andalso Status =/= booting ->
