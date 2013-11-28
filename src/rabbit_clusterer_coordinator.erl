@@ -293,17 +293,13 @@ handle_cast(rabbit_booted, State = #state { status = ready }) ->
     %% restarted rabbit.
     noreply(State);
 
-handle_cast(rabbit_boot_failed, State = #state { status = Status })
-  when Status =:= booting orelse Status =:= ready ->
-    %% The failure is indicated by the process starting rabbit
-    %% catching an error. This error can be caught *after* we've gone
-    %% through the boot step that issues the rabbit_booted
-    %% message. Hence the need to cope with Status =:= ready.
-
-    %% Just to be on the safe side, do the stop_rabbit as well. The
-    %% stop_mnesia is more crucial: rabbit expects mnesia to be
-    %% stopped on boot, so if the boot failed, we must be sure to stop
-    %% mnesia.
+handle_cast(rabbit_boot_failed, State = #state { status = booting }) ->
+    %% Just to be on the safe side, do the stop_rabbit as well
+    %% (thinking is that rabbit itself could have managed to start
+    %% just fine, but some plugin/separate-app failed to start;
+    %% possibly rabbit could still be running). The stop_mnesia is
+    %% crucial: rabbit expects mnesia to be stopped on boot, so if the
+    %% boot failed, we must be sure to stop mnesia.
     ok = rabbit_clusterer_utils:stop_rabbit(),
     ok = rabbit_clusterer_utils:stop_mnesia(),
     noreply(set_status(booting, State));

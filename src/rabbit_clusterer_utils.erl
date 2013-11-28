@@ -39,7 +39,8 @@ spawn_starter(Fun, PreSleep) ->
                       false -> ok
                   end,
                   try
-                      ok = Fun()
+                      ok = Fun(),
+                      rabbit_clusterer_coordinator:rabbit_booted()
                   catch
                       _Class:_Reason ->
                           rabbit_clusterer_coordinator:rabbit_boot_failed()

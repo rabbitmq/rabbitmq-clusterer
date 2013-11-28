@@ -9,11 +9,6 @@
 
 -export([start/2, stop/1]).
 
--rabbit_boot_step({rabbit_clusterer,
-                   [{description, "Declarative Clustering"},
-                    {mfa, {rabbit_clusterer_coordinator, rabbit_booted, []}},
-                    {requires, networking}]}).
-
 %%----------------------------------------------------------------------------
 
 boot() ->
