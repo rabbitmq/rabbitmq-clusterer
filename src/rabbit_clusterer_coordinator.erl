@@ -397,12 +397,11 @@ set_status(booting, State = #state { status  = Status,
                                      booted  = Booted,
                                      node_id = NodeID,
                                      config  = Config })
-  when ?IS_TRANSITIONER(Status) orelse
-       Status =:= booting orelse Status =:= ready ->
+  when ?IS_TRANSITIONER(Status) orelse Status =:= booting ->
     error_logger:info_msg(
       "Clusterer booting Rabbit into cluster configuration:~n~p~n",
       [rabbit_clusterer_config:to_proplist(NodeID, Config)]),
-    PreSleep = Status =:= booting orelse Status =:= ready,
+    PreSleep = Status =:= booting,
     case Booted of
         true  -> ok = rabbit_clusterer_utils:start_rabbit_async(PreSleep);
         false -> ok = rabbit_clusterer_utils:boot_rabbit_async(PreSleep)
