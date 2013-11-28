@@ -293,7 +293,18 @@ handle_cast(rabbit_booted, State = #state { status = ready }) ->
     %% restarted rabbit.
     noreply(State);
 
-handle_cast(rabbit_boot_failed, State = #state { status = booting }) ->
+handle_cast(rabbit_boot_failed, State = #state { status = Status })
+  when Status =:= booting orelse Status =:= ready ->
+    %% The failure is indicated by the process starting rabbit
+    %% catching an error. This error can be caught *after* we've gone
+    %% through the boot step that issues the rabbit_booted
+    %% message. Hence the need to cope with Status =:= ready.
+
+    %% Just to be on the safe side, do the stop_rabbit as well. The
+    %% stop_mnesia is more crucial: rabbit expects mnesia to be
+    %% stopped on boot, so if the boot failed, we must be sure to stop
+    %% mnesia.
+    ok = rabbit_clusterer_utils:stop_rabbit(),
     ok = rabbit_clusterer_utils:stop_mnesia(),
     noreply(set_status(booting, State));
 
@@ -381,6 +392,7 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 %% booting           -> booting
 %% ready             -> a transitioner
 %% ready             -> shutdown
+%% ready             -> booting
 
 set_status(NewStatus, State = #state { status = Status })
   when ?IS_TRANSITIONER(NewStatus) andalso Status =/= booting ->
@@ -389,11 +401,12 @@ set_status(booting, State = #state { status  = Status,
                                      booted  = Booted,
                                      node_id = NodeID,
                                      config  = Config })
-  when ?IS_TRANSITIONER(Status) orelse Status =:= booting ->
+  when ?IS_TRANSITIONER(Status) orelse
+       Status =:= booting orelse Status =:= ready ->
     error_logger:info_msg(
       "Clusterer booting Rabbit into cluster configuration:~n~p~n",
       [rabbit_clusterer_config:to_proplist(NodeID, Config)]),
-    PreSleep = Status =:= booting,
+    PreSleep = Status =:= booting orelse Status =:= ready,
     case Booted of
         true  -> ok = rabbit_clusterer_utils:start_rabbit_async(PreSleep);
         false -> ok = rabbit_clusterer_utils:boot_rabbit_async(PreSleep)
