@@ -27,7 +27,8 @@
                  alive_mrefs,
                  dead,
                  poke_timer_ref,
-                 booted
+                 booted,
+                 reboot_timer_ref
                }).
 
 %%----------------------------------------------------------------------------
@@ -71,7 +72,8 @@ init([]) -> {ok, #state { status             = preboot,
                           alive_mrefs        = [],
                           dead               = [],
                           poke_timer_ref     = undefined,
-                          booted             = false
+                          booted             = false,
+                          reboot_timer_ref   = undefined
                         }}.
 
 %%----------------
@@ -98,7 +100,7 @@ handle_call({request_status, NewNode, NewNodeID}, _From,
             State = #state { status  = Status,
                              node_id = NodeID,
                              config  = Config }) ->
-    %% Status \in {booting, ready}
+    %% Status \in {booting, ready, rebooting}
     %%
     %% Consider we're running (ready) and we're already clustered with
     %% NewNode, though it's currently down and is just coming back up,
@@ -136,7 +138,7 @@ handle_call({{transitioner, _TKind}, _Msg}, _From, State) ->
 handle_call({apply_config, NewConfig}, From,
             State = #state { status = Status,
                              config = Config })
-  when Status =:= ready orelse ?IS_TRANSITIONER(Status) ->
+  when Status =:= ready orelse ?IS_TRANSITIONER(Status) orelse Status =:= rebooting ->
     case {rabbit_clusterer_config:load(NewConfig), Status} of
         {{ok, NewConfig1}, {transitioner, _}} ->
             %% We have to defer to the transitioner here which means
@@ -146,7 +148,7 @@ handle_call({apply_config, NewConfig}, From,
             gen_server:reply(From, transition_in_progress_ok),
             noreply(transitioner_event(
                       {new_config, NewConfig1, undefined}, State));
-        {{ok, NewConfig1}, ready} ->
+        {{ok, NewConfig1}, _} when Status =:= ready orelse Status =:= rebooting ->
             ReadyNotRunning = Status =:= ready andalso not rabbit:is_running(),
             case rabbit_clusterer_config:compare(NewConfig1, Config) of
                 younger when ReadyNotRunning ->
@@ -245,9 +247,10 @@ handle_cast({new_config, ConfigRemote, Node},
     %% deadlock.
     noreply(transitioner_event({new_config, ConfigRemote, Node}, State));
 handle_cast({new_config, ConfigRemote, Node},
-            State = #state { status  = ready,
+            State = #state { status  = Status,
                              node_id = NodeID,
-                             config  = Config }) ->
+                             config  = Config })
+  when Status =:= ready orelse Status =:= rebooting ->
     %% We a) know what our config really is; b) it's safe to begin
     %% transitions to other configurations.
     Running = rabbit:is_running(),
@@ -302,7 +305,7 @@ handle_cast(rabbit_boot_failed, State = #state { status = booting }) ->
     %% boot failed, we must be sure to stop mnesia.
     ok = rabbit_clusterer_utils:stop_rabbit(),
     ok = rabbit_clusterer_utils:stop_mnesia(),
-    noreply(set_status(booting, State));
+    noreply(set_status(rebooting, State));
 
 handle_cast({lock, Locker}, State = #state { comms = undefined }) ->
     gen_server:cast(Locker, {lock_rejected, node()}),
@@ -361,6 +364,12 @@ handle_info(poke_the_dead, State = #state { dead        = Dead,
 handle_info(poke_the_dead, State) ->
     noreply(State #state { poke_timer_ref = undefined });
 
+handle_info({reboot, TRef}, State = #state { status           = rebooting,
+                                             reboot_timer_ref = TRef }) ->
+    noreply(set_status(booting, State #state { reboot_timer_ref = undefined }));
+handle_info({reboot, _TRef}, State) ->
+    noreply(State);
+
 %% anything else kills us
 handle_info(Msg, State) ->
     {stop, {unhandled_info, Msg}, State}.
@@ -386,6 +395,8 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 %% {transitioner, _} -> shutdown
 %% booting           -> ready
 %% booting           -> booting
+%% booting           -> rebooting
+%% rebooting         -> booting
 %% ready             -> a transitioner
 %% ready             -> shutdown
 
@@ -396,14 +407,13 @@ set_status(booting, State = #state { status  = Status,
                                      booted  = Booted,
                                      node_id = NodeID,
                                      config  = Config })
-  when ?IS_TRANSITIONER(Status) orelse Status =:= booting ->
+  when ?IS_TRANSITIONER(Status) orelse Status =:= booting orelse Status =:= rebooting ->
     error_logger:info_msg(
       "Clusterer booting Rabbit into cluster configuration:~n~p~n",
       [rabbit_clusterer_config:to_proplist(NodeID, Config)]),
-    PreSleep = Status =:= booting,
     case Booted of
-        true  -> ok = rabbit_clusterer_utils:start_rabbit_async(PreSleep);
-        false -> ok = rabbit_clusterer_utils:boot_rabbit_async(PreSleep)
+        true  -> ok = rabbit_clusterer_utils:start_rabbit_async();
+        false -> ok = rabbit_clusterer_utils:boot_rabbit_async()
     end,
     State #state { status = booting };
 set_status(ready, State = #state { status = booting }) ->
@@ -419,7 +429,11 @@ set_status(shutdown, State = #state { status = Status })
     end,
     error_logger:info_msg("Clusterer stopping node now.~n"),
     init:stop(),
-    State #state { status = shutdown }.
+    State #state { status = shutdown };
+set_status(rebooting, State = #state { status = booting }) ->
+    TRef = make_ref(),
+    erlang:send_after(10000, self(), {reboot, TRef}),
+    State #state { status = rebooting, reboot_timer_ref = TRef }.
 
 noreply(State = #state { status = shutdown }) ->
     {stop, normal, State};

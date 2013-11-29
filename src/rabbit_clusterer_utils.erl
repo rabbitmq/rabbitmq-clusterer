@@ -2,8 +2,8 @@
 
 -export([stop_mnesia/0,
          stop_rabbit/0,
-         start_rabbit_async/1,
-         boot_rabbit_async/1,
+         start_rabbit_async/0,
+         boot_rabbit_async/0,
          make_mnesia_singleton/1,
          eliminate_mnesia_dependencies/1,
          configure_cluster/2]).
@@ -26,18 +26,14 @@ stop_rabbit() ->
         Other                          -> Other
     end.
 
-start_rabbit_async(PreSleep) ->
-    ok = spawn_starter(fun rabbit:start/0, PreSleep).
+start_rabbit_async() ->
+    ok = spawn_starter(fun rabbit:start/0).
 
-boot_rabbit_async(PreSleep) ->
-    ok = spawn_starter(fun rabbit:boot/0, PreSleep).
+boot_rabbit_async() ->
+    ok = spawn_starter(fun rabbit:boot/0).
 
-spawn_starter(Fun, PreSleep) ->
+spawn_starter(Fun) ->
     spawn(fun () ->
-                  case PreSleep of
-                      true  -> timer:sleep(?PRE_SLEEP);
-                      false -> ok
-                  end,
                   try
                       ok = Fun(),
                       rabbit_clusterer_coordinator:rabbit_booted()
