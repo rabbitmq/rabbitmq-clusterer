@@ -1,6 +1,6 @@
 -module(rabbit_clusterer_transitioner).
 
--export([init/4, event/2]).
+-export([init/5, event/2]).
 
 -record(state, { kind, status, node_id, config, comms, awaiting, eliminable }).
 
@@ -106,18 +106,22 @@
 %% API
 %%----------------------------------------------------------------------------
 
-init(Kind, NodeID, Config, Comms) ->
+init(Kind, NodeID, Config, PreSleep, Comms) ->
     case rabbit_clusterer_config:is_singleton(node(), Config) of
         true  -> ok = rabbit_clusterer_utils:make_mnesia_singleton(
                         Kind =:= join andalso
                         rabbit_clusterer_config:gospel(Config) =:= reset),
                  {success, Config};
-        false -> request_status(#state { kind       = Kind,
-                                         node_id    = NodeID,
-                                         config     = Config,
-                                         comms      = Comms,
-                                         awaiting   = undefined,
-                                         eliminable = [] })
+        false -> State = #state { kind       = Kind,
+                                  node_id    = NodeID,
+                                  config     = Config,
+                                  comms      = Comms,
+                                  awaiting   = undefined,
+                                  eliminable = [] },
+                 case PreSleep of
+                     true  -> delayed_request_status(10000, State);
+                     false -> request_status(State)
+                 end
     end.
 
 event({comms, {Replies, BadNodes}}, State = #state { kind    = Kind,
@@ -453,9 +457,12 @@ request_status(State = #state { node_id = NodeID,
     {continue, State #state { status = awaiting_status }}.
 
 delayed_request_status(State) ->
+    delayed_request_status(500, State).
+
+delayed_request_status(Sleep, State) ->
     %% TODO: work out some sensible timeout value
     Ref = make_ref(),
-    {sleep, 500, {delayed_request_status, Ref},
+    {sleep, Sleep, {delayed_request_status, Ref},
      State #state { status = {delayed_request_status, Ref} }}.
 
 %% The input is a k/v list of nodes and their config+status tuples (or

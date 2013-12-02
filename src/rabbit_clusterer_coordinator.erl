@@ -28,7 +28,7 @@
                  dead,
                  poke_timer_ref,
                  booted,
-                 reboot_timer_ref
+                 last_boot_failed
                }).
 
 %%----------------------------------------------------------------------------
@@ -73,7 +73,7 @@ init([]) -> {ok, #state { status             = preboot,
                           dead               = [],
                           poke_timer_ref     = undefined,
                           booted             = false,
-                          reboot_timer_ref   = undefined
+                          last_boot_failed   = false
                         }}.
 
 %%----------------
@@ -281,7 +281,8 @@ handle_cast(rabbit_booted, State = #state { status = booting }) ->
     %% Note that we don't allow any transition to start whilst we're
     %% booting so it should be safe to assert we can only receive
     %% rabbit_booted when in booting.
-    noreply(set_status(ready, State #state { booted = true }));
+    noreply(set_status(ready, State #state { booted           = true,
+                                             last_boot_failed = false }));
 handle_cast(rabbit_booted, State = #state { status = preboot }) ->
     %% Very likely they forgot to edit the rabbit-server
     %% script. Complain very loudly.
@@ -296,7 +297,8 @@ handle_cast(rabbit_booted, State = #state { status = ready }) ->
     %% restarted rabbit.
     noreply(State);
 
-handle_cast(rabbit_boot_failed, State = #state { status = booting }) ->
+handle_cast(rabbit_boot_failed, State = #state { status = booting,
+                                                 config = Config }) ->
     %% Just to be on the safe side, do the stop_rabbit as well
     %% (thinking is that rabbit itself could have managed to start
     %% just fine, but some plugin/separate-app failed to start;
@@ -305,7 +307,7 @@ handle_cast(rabbit_boot_failed, State = #state { status = booting }) ->
     %% boot failed, we must be sure to stop mnesia.
     ok = rabbit_clusterer_utils:stop_rabbit(),
     ok = rabbit_clusterer_utils:stop_mnesia(),
-    noreply(set_status(rebooting, State));
+    noreply(begin_transition(Config, State #state { last_boot_failed = true }));
 
 handle_cast({lock, Locker}, State = #state { comms = undefined }) ->
     gen_server:cast(Locker, {lock_rejected, node()}),
@@ -364,12 +366,6 @@ handle_info(poke_the_dead, State = #state { dead        = Dead,
 handle_info(poke_the_dead, State) ->
     noreply(State #state { poke_timer_ref = undefined });
 
-handle_info({reboot, TRef}, State = #state { status           = rebooting,
-                                             reboot_timer_ref = TRef }) ->
-    noreply(set_status(booting, State #state { reboot_timer_ref = undefined }));
-handle_info({reboot, _TRef}, State) ->
-    noreply(State);
-
 %% anything else kills us
 handle_info(Msg, State) ->
     {stop, {unhandled_info, Msg}, State}.
@@ -395,13 +391,12 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 %% {transitioner, _} -> shutdown
 %% booting           -> ready
 %% booting           -> booting
-%% booting           -> rebooting
-%% rebooting         -> booting
+%% booting           -> a transitioner
 %% ready             -> a transitioner
 %% ready             -> shutdown
 
 set_status(NewStatus, State = #state { status = Status })
-  when ?IS_TRANSITIONER(NewStatus) andalso Status =/= booting ->
+  when ?IS_TRANSITIONER(NewStatus) ->
     State #state { status = NewStatus };
 set_status(booting, State = #state { status  = Status,
                                      booted  = Booted,
@@ -429,15 +424,7 @@ set_status(shutdown, State = #state { status = Status })
     end,
     error_logger:info_msg("Clusterer stopping node now.~n"),
     init:stop(),
-    State #state { status = shutdown };
-set_status(rebooting, State = #state { status = booting }) ->
-    TRef = make_ref(),
-    erlang:send_after(10000, self(), {reboot, TRef}),
-    %% Create a new fresh comms so that we can be locked...
-    {_Comms, State1} = fresh_comms(
-                         State #state { status           = rebooting,
-                                        reboot_timer_ref = TRef }),
-    State1.
+    State #state { status = shutdown }.
 
 noreply(State = #state { status = shutdown }) ->
     {stop, normal, State};
@@ -454,7 +441,6 @@ reply(Reply, State) ->
 %%----------------------------------------------------------------------------
 
 begin_transition(NewConfig, State = #state { config = Config }) ->
-    true = State #state.status =/= booting, %% ASSERTION
     case rabbit_clusterer_config:contains_node(node(), NewConfig) of
         false -> process_transitioner_response({shutdown, NewConfig}, State);
         true  -> begin_transition(
@@ -478,8 +464,9 @@ begin_transition(true,     NewConfig, State) ->
 begin_transition(false,    NewConfig, State) ->
     join_or_rejoin(join,   NewConfig, State).
 
-join_or_rejoin(TKind, NewConfig, State = #state { node_id = NodeID,
-                                                  nodes   = Nodes }) ->
+join_or_rejoin(TKind, NewConfig, State = #state { node_id          = NodeID,
+                                                  nodes            = Nodes,
+                                                  last_boot_failed = LBF }) ->
     ok = send_new_config(NewConfig, Nodes),
     %% Wipe out alive_mrefs and dead so that if we get DOWN's we don't
     %% care about them.
@@ -487,7 +474,7 @@ join_or_rejoin(TKind, NewConfig, State = #state { node_id = NodeID,
                                                  dead        = [],
                                                  nodes       = [] }),
     process_transitioner_response(
-      rabbit_clusterer_transitioner:init(TKind, NodeID, NewConfig, Comms),
+      rabbit_clusterer_transitioner:init(TKind, NodeID, NewConfig, LBF, Comms),
       set_status({transitioner, TKind}, State1)).
 
 transitioner_event(Event, State = #state { status = {transitioner, _TKind},
