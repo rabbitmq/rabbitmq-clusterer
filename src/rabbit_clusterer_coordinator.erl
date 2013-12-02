@@ -433,7 +433,11 @@ set_status(shutdown, State = #state { status = Status })
 set_status(rebooting, State = #state { status = booting }) ->
     TRef = make_ref(),
     erlang:send_after(10000, self(), {reboot, TRef}),
-    State #state { status = rebooting, reboot_timer_ref = TRef }.
+    %% Create a new fresh comms so that we can be locked...
+    {_Comms, State1} = fresh_comms(
+                         State #state { status           = rebooting,
+                                        reboot_timer_ref = TRef }),
+    State1.
 
 noreply(State = #state { status = shutdown }) ->
     {stop, normal, State};
