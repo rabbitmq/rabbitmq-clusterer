@@ -12,7 +12,6 @@
 %%----------------------------------------------------------------------------
 
 boot() ->
-    dbg:tracer(), dbg:p(all,c), dbg:tp(mnesia,[]),
     ok = application:start(rabbitmq_clusterer),
     ok = rabbit_clusterer_coordinator:begin_coordination(),
     ok.
