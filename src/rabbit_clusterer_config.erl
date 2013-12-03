@@ -269,8 +269,10 @@ transfer_node_ids(#config { node_ids = NodeIDs }, Dest = #config { }) ->
 
 update_node_id(Node, #config { node_ids = NodeIDsRemote },
                NodeID, Config = #config { node_ids = NodeIDsLocal }) ->
-    NodeIDsLocal1 = orddict:store(Node, orddict:fetch(Node, NodeIDsRemote),
-                                  NodeIDsLocal),
+    NodeIDsLocal1 = case orddict:find(Node, NodeIDsRemote) of
+                        error    -> NodeIDsLocal;
+                        {ok, ID} -> orddict:store(Node, ID, NodeIDsLocal)
+                    end,
     tidy_node_ids(NodeID, Config #config { node_ids = NodeIDsLocal1 }).
 
 add_node_ids(ExtraNodeIDs, NodeID, Config = #config { node_ids = NodeIDs }) ->

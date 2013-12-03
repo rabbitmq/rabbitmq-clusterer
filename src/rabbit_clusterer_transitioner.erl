@@ -121,6 +121,20 @@ init(Kind, NodeID, Config, PreSleep, Comms) ->
                                   comms      = Comms,
                                   awaiting   = undefined,
                                   eliminable = [] },
+                 %% If the last boot failed, we want to sleep for a
+                 %% while before trying another boot. This is (a)
+                 %% generally polite and avoids spinning too rapidly;
+                 %% (b) gives a period of time during which we're
+                 %% lockable by other nodes and generally receptive to
+                 %% other nodes trying to do things. This is important
+                 %% in the case of upgrades: we might be a node trying
+                 %% to join in with an existing cluster but we're on a
+                 %% new version, so the rabbit boot
+                 %% fails. Consequently, as the other nodes get
+                 %% updated we need to cope with them potentially
+                 %% having different configs and needing to
+                 %% communicate with us, thus we need to be responsive
+                 %% during this sleep period.
                  case PreSleep of
                      true  -> delayed_request_status(?BIG_SLEEP, State);
                      false -> request_status(State)
