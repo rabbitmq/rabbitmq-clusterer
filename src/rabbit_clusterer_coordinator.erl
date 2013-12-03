@@ -100,7 +100,7 @@ handle_call({request_status, NewNode, NewNodeID}, _From,
             State = #state { status  = Status,
                              node_id = NodeID,
                              config  = Config }) ->
-    %% Status \in {booting, ready, rebooting}
+    %% Status \in {booting, ready}
     %%
     %% Consider we're running (ready) and we're already clustered with
     %% NewNode, though it's currently down and is just coming back up,
@@ -138,7 +138,7 @@ handle_call({{transitioner, _TKind}, _Msg}, _From, State) ->
 handle_call({apply_config, NewConfig}, From,
             State = #state { status = Status,
                              config = Config })
-  when Status =:= ready orelse ?IS_TRANSITIONER(Status) orelse Status =:= rebooting ->
+  when Status =:= ready orelse ?IS_TRANSITIONER(Status) ->
     case {rabbit_clusterer_config:load(NewConfig), Status} of
         {{ok, NewConfig1}, {transitioner, _}} ->
             %% We have to defer to the transitioner here which means
@@ -148,7 +148,7 @@ handle_call({apply_config, NewConfig}, From,
             gen_server:reply(From, transition_in_progress_ok),
             noreply(transitioner_event(
                       {new_config, NewConfig1, undefined}, State));
-        {{ok, NewConfig1}, _} when Status =:= ready orelse Status =:= rebooting ->
+        {{ok, NewConfig1}, ready} ->
             ReadyNotRunning = Status =:= ready andalso not rabbit:is_running(),
             case rabbit_clusterer_config:compare(NewConfig1, Config) of
                 younger when ReadyNotRunning ->
@@ -247,10 +247,9 @@ handle_cast({new_config, ConfigRemote, Node},
     %% deadlock.
     noreply(transitioner_event({new_config, ConfigRemote, Node}, State));
 handle_cast({new_config, ConfigRemote, Node},
-            State = #state { status  = Status,
+            State = #state { status  = ready,
                              node_id = NodeID,
-                             config  = Config })
-  when Status =:= ready orelse Status =:= rebooting ->
+                             config  = Config }) ->
     %% We a) know what our config really is; b) it's safe to begin
     %% transitions to other configurations.
     Running = rabbit:is_running(),
@@ -395,14 +394,13 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 %% ready             -> a transitioner
 %% ready             -> shutdown
 
-set_status(NewStatus, State = #state { status = Status })
-  when ?IS_TRANSITIONER(NewStatus) ->
+set_status(NewStatus, State) when ?IS_TRANSITIONER(NewStatus) ->
     State #state { status = NewStatus };
 set_status(booting, State = #state { status  = Status,
                                      booted  = Booted,
                                      node_id = NodeID,
                                      config  = Config })
-  when ?IS_TRANSITIONER(Status) orelse Status =:= booting orelse Status =:= rebooting ->
+  when ?IS_TRANSITIONER(Status) orelse Status =:= booting ->
     error_logger:info_msg(
       "Clusterer booting Rabbit into cluster configuration:~n~p~n",
       [rabbit_clusterer_config:to_proplist(NodeID, Config)]),

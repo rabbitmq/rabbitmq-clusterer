@@ -102,6 +102,9 @@
 %% also gets a new lock as the lock is the comms Pid itself. So when B
 %% restarts its comms, it's unlocking itself too.
 
+-define(MINI_SLEEP, 500).
+-define(BIG_SLEEP, 5000).
+
 %%----------------------------------------------------------------------------
 %% API
 %%----------------------------------------------------------------------------
@@ -119,7 +122,7 @@ init(Kind, NodeID, Config, PreSleep, Comms) ->
                                   awaiting   = undefined,
                                   eliminable = [] },
                  case PreSleep of
-                     true  -> delayed_request_status(10000, State);
+                     true  -> delayed_request_status(?BIG_SLEEP, State);
                      false -> request_status(State)
                  end
     end.
@@ -457,7 +460,7 @@ request_status(State = #state { node_id = NodeID,
     {continue, State #state { status = awaiting_status }}.
 
 delayed_request_status(State) ->
-    delayed_request_status(500, State).
+    delayed_request_status(?MINI_SLEEP, State).
 
 delayed_request_status(Sleep, State) ->
     %% TODO: work out some sensible timeout value
