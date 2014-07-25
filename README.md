@@ -49,6 +49,10 @@ public umbrella.
 
 To build the plugin run `make`.
 
+The `VERSION` environment variable is used to specify plugin version:
+
+    VERSION=3.3.4 make
+
 ### Linking in Development Environment
 
 If you're running a development environment and want to link through
