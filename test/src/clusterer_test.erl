@@ -150,6 +150,7 @@ filter_program(Program) ->
     end.
 
 two_ready({_InitialState, Steps}) ->
+    io:format("Steps: ~p~n", [Steps]),
     lists:any(fun (#step { final_state = #state { nodes = Nodes } }) ->
                       length([true || {_Name, #node { state = ready }}
                                           <- orddict:to_list(Nodes)]) > 1
