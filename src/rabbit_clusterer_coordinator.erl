@@ -570,7 +570,7 @@ stop_monitoring(State = #state { config      = ConfigNew,
                                  nodes       = NodesOld,
                                  alive_mrefs = AliveOld }) ->
     ok = send_new_config(ConfigNew, NodesOld),
-    [demonitor(MRef) || MRef <- AliveOld],
+    [erlang:demonitor(MRef) || MRef <- AliveOld],
     State #state { nodes          = [],
                    alive_mrefs    = [],
                    dead           = [],
