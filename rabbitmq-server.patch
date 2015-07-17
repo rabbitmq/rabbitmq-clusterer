@@ -1,0 +1,12 @@
+diff -r e9637021f623 scripts/rabbitmq-server
+--- a/scripts/rabbitmq-server   Thu Aug 01 15:36:09 2013 +0100
++++ b/scripts/rabbitmq-server   Tue Aug 06 11:15:37 2013 +0100
+@@ -59,7 +59,7 @@
+ 
+ RABBITMQ_START_RABBIT=
+ [ "x" = "x$RABBITMQ_ALLOW_INPUT" ] && RABBITMQ_START_RABBIT=" -noinput"
+-[ "x" = "x$RABBITMQ_NODE_ONLY" ] && RABBITMQ_START_RABBIT="$RABBITMQ_START_RABBIT -s rabbit boot "
++[ "x" = "x$RABBITMQ_NODE_ONLY" ] && RABBITMQ_START_RABBIT="$RABBITMQ_START_RABBIT -s rabbit_clusterer boot -pa ${RABBITMQ_PLUGINS_DIR}/rabbitmq_clusterer.ez/rabbitmq_clusterer-1.0.0/ebin"
+ 
+ case "$(uname -s)" in
+   CYGWIN*) # we make no attempt to record the cygwin pid; rabbitmqctl wait
