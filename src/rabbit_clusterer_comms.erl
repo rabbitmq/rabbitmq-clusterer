@@ -105,7 +105,7 @@ handle_cast({lock_nodes, ReplyTo, Nodes},
     true = lists:member(node(), Nodes), %% ASSERTION
     %% Of course, all of this has to be async too...
     [First|_] = SortedNodes = lists:usort(Nodes),
-    [monitor(process, {?TARGET, N}) || N <- SortedNodes],
+    [erlang:monitor(process, {?TARGET, N}) || N <- SortedNodes],
     gen_server:cast({?TARGET, First}, {lock, self()}),
     {noreply, State #state { locking = {[], SortedNodes, ReplyTo} }};
 
@@ -128,7 +128,7 @@ handle_cast({lock_rejected, Node},
 
 handle_cast({lock, Locker}, State = #state { locked_by = undefined }) ->
     gen_server:cast(Locker, {lock_ok, node()}),
-    monitor(process, Locker),
+    erlang:monitor(process, Locker),
     {noreply, State #state { locked_by = Locker }};
 handle_cast({lock, Locker}, State) ->
     gen_server:cast(Locker, {lock_rejected, node()}),

@@ -372,7 +372,7 @@ handle_info(poke_the_dead, State = #state { dead        = Dead,
     %% code will update the nodes we're currently clustered with and
     %% any other nodes that contacted us whilst we were transitioning
     %% or booting.
-    MRefsNew = [monitor(process, {?SERVER, N}) || N <- Dead],
+    MRefsNew = [erlang:monitor(process, {?SERVER, N}) || N <- Dead],
     ok = send_new_config(Config, Dead),
     Alive1 = MRefsNew ++ Alive,
     noreply(State #state { dead           = [],
@@ -562,7 +562,7 @@ update_monitoring(State = #state { config = ConfigNew,
     State1 = stop_monitoring(State),
     NodesNew = rabbit_clusterer_config:nodenames(ConfigNew) -- [node()],
     ok = send_new_config(ConfigNew, NodesNew -- NodesOld),
-    AliveNew = [monitor(process, {?SERVER, N}) || N <- NodesNew],
+    AliveNew = [erlang:monitor(process, {?SERVER, N}) || N <- NodesNew],
     State1 #state { nodes       = NodesNew,
                     alive_mrefs = AliveNew}.
 
