@@ -1,6 +1,7 @@
 DEPS:=rabbitmq-server
 # we use WITH_BROKER in order to easily get a distributed node.
-WITH_BROKER_TEST_COMMANDS:=clusterer_test:test(1000000)
+# TODO Finish the testsuite; it is disabled for now.
+# WITH_BROKER_TEST_COMMANDS:=clusterer_test:test(1000000)
 
 define package_rules
 
