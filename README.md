@@ -67,7 +67,7 @@ export RABBITMQ_BOOT_MODULE=rabbit_clusterer
 export RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS="-pa /path/to/rabbitmq/plugins/rabbitmq_clusterer.ez/rabbitmq_clusterer-{clusterer-version}/ebin"
 ```
 
-where `{clusterer-version}` is the version of the plugin (currently `1.0.0`).
+where `{clusterer-version}` is the build of the plugin (currently `3.5.x-189b3a81`).
 
 ## For RabbitMQ 3.4.x
 
