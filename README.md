@@ -57,7 +57,7 @@ and enable it with `rabbitmq-plugins enable rabbitmq_clusterer --offline`.
 Compiled plugin file needs to be placed into .
 
 To use the plugin, it is necessary to override `RABBITMQ_BOOT_MODULE` to `rabbit_clusterer`. This
-is done similarty to [other RabbitMQ environment variables](http://rabbitmq.com/configure.html).
+is done similarly to [other RabbitMQ environment variables](http://rabbitmq.com/configure.html).
 
 Because this plugin coordinates RabbitMQ node start, it needs to be manually added to the Erlang VM
 code path:
