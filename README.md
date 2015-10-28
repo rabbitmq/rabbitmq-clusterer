@@ -18,6 +18,10 @@ construct and the clusterer tries to achieve that. With the Clusterer,
 cluster configuration can be provided in a single location (a configuration
 file).
 
+With `rabbitmq-clusterer`, nodes in a cluster can be restarted in any order,
+which can be the case with automation tools performing upgrades/reconfiguration,
+or due to node failure timing.
+
 
 ## Project Maturity
 
