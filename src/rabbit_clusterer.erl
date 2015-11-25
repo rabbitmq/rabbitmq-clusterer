@@ -46,7 +46,7 @@ status(Node) ->
     {Message, Config, List} =
         case rabbit_clusterer_coordinator:request_status(Node) of
             preboot ->
-                {"Clusterer is booting.~n", undefined, []};
+                {"Clusterer is pre-booting. ~p~n", undefined, []};
             {Config1, booting} ->
                 {"Clusterer is booting Rabbit into cluster configuration: "
                  "~n~s~n", Config1, []};
