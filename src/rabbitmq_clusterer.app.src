@@ -1,6 +1,6 @@
 {application, rabbitmq_clusterer,
  [{description, "Declarative RabbitMQ clustering"},
-  {vsn, "%%VSN%%"},
+  {vsn, ""},
   {modules, []},
   {registered, []},
   {env, []},
