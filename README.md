@@ -255,7 +255,7 @@ and running, at which point it could sync with that node.
       quickly reset an entire cluster, but in general you'll only
       occasionally want to set `gospel` to `reset`.
 
-    * `{node, `*nodename*`}` The nodename must appear in the `nodes`
+    * `{node, nodename}` The nodename must appear in the `nodes`
       tuple. The data held by the existing cluster of which *nodename*
       is a member will survive. Nodes that are listed in the `nodes`
       tuple but which are not currently members of the same cluster as
@@ -263,7 +263,7 @@ and running, at which point it could sync with that node.
       it is not necessary for *nodename* to actually be up and running
       for this to work. If you have an existing cluster of nodes *A*
       and *B* and you want to add in node *C* you can set the `gospel`
-      to be `{node, `*A*`}`, add *C* to the `nodes` tuple, bump the
+      to be `{node, A}`, add *C* to the `nodes` tuple, bump the
       version and apply the config to *C* and provided *at least one*
       of *A* or *B* is up and running, *C* will successfully
       cluster. I.e. if only *B* is up, *B* still knows that it is
