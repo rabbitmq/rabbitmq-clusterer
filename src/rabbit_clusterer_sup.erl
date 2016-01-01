@@ -11,7 +11,7 @@
 %% The Original Code is RabbitMQ. 
 %%
 %% The Initial Developer of the Original Code is Pivotal Software, Inc. 
-%% Portions created by the Initial Developer are Copyright (C) 2013-2015 
+%% Portions created by the Initial Developer are Copyright (C) 2013-2016
 %% Pivotal Software, Inc. All Rights Reserved.
 
 -module(rabbit_clusterer_sup).
