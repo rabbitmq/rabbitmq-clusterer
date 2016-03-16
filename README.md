@@ -25,12 +25,9 @@ or due to node failure timing.
 
 ## Project Maturity
 
-This plugin is considered experimental. While it has been used in Pivotal
-projects for about 2 years (as of July 2015), we don't have enough community
-feedback on it to begin integrating it into the core.
-
-The project will continue evolving and breaking changes, while unlikely,
-can still happen.
+This plugin is considered production ready. It has been used in Pivotal
+projects since Summer 2013 and the community didn't report any major
+issues since the clusterer was opensourced.
 
 
 ## Compatibility With Traditional RabbitMQ Clustering
