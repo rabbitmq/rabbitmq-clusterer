@@ -118,7 +118,7 @@ For example:
 
 For `rabbitmq.conf`:
 
-    clusterer.config = "/path/to/my/cluster.config"
+    clusterer.config = /path/to/my/cluster.config
 
 For `rabbitmq.config` (prior to 3.7.0) or `advanced.config`:
 
