@@ -116,6 +116,12 @@ can add a `config` entry that is a path to configuration file.
 
 For example:
 
+For `rabbitmq.conf`:
+
+    clusterer.config = "/path/to/my/cluster.config"
+
+For `rabbitmq.config` (prior to 3.7.0) or `advanced.config`:
+
       [{rabbitmq_clusterer,
           [{config, "/path/to/my/cluster.config"}]
        }].
@@ -127,6 +133,16 @@ the dot at the end is mandatory.
 
 It is possible to provide cluster configuration in `rabbitmq.config`
 like so:
+
+For `rabbitmq.conf`:
+
+    clusterer.version = 43
+    clusterer.nodes.disc.1 = rabbit@hostA
+    clusterer.nodes.disc.2 = rabbit@hostD
+    clusterer.nodes.ram.1  = rabbit@hostB
+    clusterer.gospel.node = rabbit@hostD
+
+For `rabbitmq.config` (prior to 3.7.0) or `advanced.config`:
 
       [{rabbitmq_clusterer,
           [{config,
