@@ -114,13 +114,13 @@ file or inline.
 In a `rabbitmq_clusterer` section in `rabbitmq.config` file you
 can add a `config` entry that is a path to configuration file.
 
-For example:
+Below are some examples.
 
-For `rabbitmq.conf`:
+When using `rabbitmq.conf` (currently only available in RabbitMQ master):
 
     clusterer.config = /path/to/my/cluster.config
 
-For `rabbitmq.config` (prior to 3.7.0) or `advanced.config`:
+When using the classic configuration format (`rabbitmq.config`, prior to 3.7.0) or `advanced.config`:
 
       [{rabbitmq_clusterer,
           [{config, "/path/to/my/cluster.config"}]
@@ -131,10 +131,9 @@ the dot at the end is mandatory.
 
 ### Using Inline Configuration in rabbitmq.config
 
-It is possible to provide cluster configuration in `rabbitmq.config`
-like so:
+It is possible to provide cluster configuration in `rabbitmq.config`.
 
-For `rabbitmq.conf`:
+In `rabbitmq.conf`:
 
     clusterer.version = 43
     clusterer.nodes.disc.1 = rabbit@hostA
@@ -142,7 +141,7 @@ For `rabbitmq.conf`:
     clusterer.nodes.ram.1  = rabbit@hostB
     clusterer.gospel.node = rabbit@hostD
 
-For `rabbitmq.config` (prior to 3.7.0) or `advanced.config`:
+Or, using the classic config format (`rabbitmq.config`, prior to 3.7.0) or `advanced.config`:
 
       [{rabbitmq_clusterer,
           [{config,
