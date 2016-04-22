@@ -1,6 +1,6 @@
 PROJECT = rabbitmq_clusterer
 
-DEPS = rabbit
+# DEPS = rabbit
 
 DEP_PLUGINS = rabbit_common/mk/rabbitmq-plugin.mk
 

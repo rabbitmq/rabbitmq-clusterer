@@ -5,4 +5,5 @@
   {registered, []},
   {env, []},
   {mod, {rabbit_clusterer, []}},
+  {broker_version_requirements, []},
   {applications, [kernel, stdlib]}]}.
