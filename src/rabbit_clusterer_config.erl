@@ -142,7 +142,7 @@ create_node_id() ->
     %% virgin node our node id will be different from if we existed
     %% previously, hence the use of erlang:system_time() which can go
     %% wrong if time is set backwards, but we hope that won't happen.
-    erlang:md5(term_to_binary({node(), time_compat:erlang_system_time()})).
+    erlang:md5(term_to_binary({node(), erlang:system_time()})).
 
 %%----------------------------------------------------------------------------
 
