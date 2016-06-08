@@ -53,7 +53,7 @@ As with all other plugins, you must put the plugin archive (`.ez`) in
 the [RabbitMQ plugins directory](http://www.rabbitmq.com/relocate.html)
 and enable it with `rabbitmq-plugins enable rabbitmq_clusterer --offline`.
 
-## For RabbitMQ 3.5.4 and Later
+## For Recent RabbitMQ Versions (3.5.4 and Later)
 
 Compiled plugin file needs to be placed into .
 
@@ -84,7 +84,7 @@ directory and apply it with:
 
     patch -p1 < rabbitmq-clusterer/rabbitmq-server.patch
 
-The patch assumes the plguin archive is at `${RABBITMQ_PLUGINS_DIR}/rabbitmq_clusterer.ez`.
+The patch assumes the plugin archive is at `${RABBITMQ_PLUGINS_DIR}/rabbitmq_clusterer.ez`.
 
 
 
@@ -349,7 +349,7 @@ much [like other plugins](https://www.rabbitmq.com/plugin-development.html).
 
 To build the plugin run `make`. The `VERSION` environment variable is used to specify plugin version:
 
-    VERSION=3.5.4 make
+    VERSION=3.6.2 make
 
 ### Linking in Development Environment
 
@@ -362,4 +362,4 @@ link to the `rabbitmq-clusterer` directory.
 
 ## License and Copyright
 
-(c) 2013-2015 Pivotal Software Inc.
+(c) 2013-2016 Pivotal Software Inc.
