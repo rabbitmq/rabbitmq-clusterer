@@ -5,7 +5,8 @@ RabbitMQ clusters. It is highly opinionated and was created with specific
 opinionated infrastructure provisioning tooling in mind.
 
 In case you need a plugin that provides cluster member discovery, take a look at [rabbitmq-autocluster](https://github.com/aweber/rabbitmq-autocluster)
-first.
+first. That plugin is not a strict alternative to this one but targets
+a wider range of provisioning scenarios.
 
 ## Overview
 
