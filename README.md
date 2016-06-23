@@ -32,19 +32,23 @@ issues since the clusterer was opensourced.
 
 ## Compatibility With Traditional RabbitMQ Clustering
 
-The Clusterer is not compatible with the existing clustering
+The Clusterer is not generally compatible with the existing clustering
 tool-set. Do not use any of the `rabbitmqctl` commands relating to
-changing clusters: `join_cluster`, `change_cluster_node_type`,
-`forget_cluster_node` and `update_cluster_nodes` must not be used. If
-you do use these, behaviour is undefined, and most likely
-bad. `rabbitmqctl cluster_status` may be used to inspect a cluster
+changing clusters: `join_cluster`, `change_cluster_node_type`, and `update_cluster_nodes` must not be used.
+If you do use these, this plugin likely won't be able to perform its jobs.
+
+`rabbitmqctl cluster_status` may be used to inspect a cluster
 state, but the Clusterer sends to the standard Rabbit log files
 details about any clusters it joins or leaves. See the *Inspecting the
-Clusterer Status* section further down. Also, `rabbitmqctl stop_app`
-and `rabbitmqctl start_app` must not be used.
+Clusterer Status* section further down.
 
-Furthermore, do not specify `cluster_nodes` in the Rabbit config file:
-it will be ignored.
+`rabbitmqctl stop_app`, `rabbitmqctl forget_cluster_node`, and `rabbitmqctl start_app`
+can be used to force a node out of a cluster before cluster config can be changed. While
+this is not generally recommended, there can be valid reasons for doing so, e.g. node
+running out of disk space and/or needing replacement for other reasons.
+
+`cluster_nodes` in the RabbitMQ config file is incompatible with this plugin
+and must not be used.
 
 
 ## Installation
