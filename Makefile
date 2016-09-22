@@ -1,6 +1,6 @@
 PROJECT = rabbitmq_clusterer
 
-DEPS = rabbit
+DEPS = rabbit_common rabbit
 
 DEP_PLUGINS = rabbit_common/mk/rabbitmq-plugin.mk
 
@@ -19,4 +19,3 @@ include erlang.mk
 
 # clusterer test suite was never finished
 # and currently disabled
-
