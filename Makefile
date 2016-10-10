@@ -1,4 +1,7 @@
 PROJECT = rabbitmq_clusterer
+PROJECT_VERSION =
+PROJECT_DESCRIPTION = Declarative RabbitMQ clustering
+PROJECT_MOD = rabbit_clusterer
 
 DEPS = rabbit_common rabbit
 

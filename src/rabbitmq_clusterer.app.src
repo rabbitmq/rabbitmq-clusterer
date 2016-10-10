@@ -1,8 +1,0 @@
-{application, rabbitmq_clusterer,
- [{description, "Declarative RabbitMQ clustering"},
-  {vsn, ""},
-  {modules, []},
-  {registered, []},
-  {env, []},
-  {mod, {rabbit_clusterer, []}},
-  {applications, [kernel, stdlib]}]}.
