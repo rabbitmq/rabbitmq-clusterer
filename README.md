@@ -58,6 +58,11 @@ and must not be used.
 
 ## Installation
 
+Binary builds of this plugin are available from
+
+ * [Bintray](https://bintray.com/rabbitmq/community-plugins/rabbitmq_clusterer) (like with other [RabbitMQ Community Plugins](http://rabbitmq.com/community-plugins.html))
+ * [GitHub releases page](https://github.com/rabbitmq/rabbitmq-clusterer/releases)
+
 As with all other plugins, you must put the plugin archive (`.ez`) in
 the [RabbitMQ plugins directory](http://www.rabbitmq.com/relocate.html)
 and enable it with `rabbitmq-plugins enable rabbitmq_clusterer --offline`.
@@ -77,7 +82,7 @@ export RABBITMQ_BOOT_MODULE=rabbit_clusterer
 export RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS="-pa /path/to/rabbitmq/plugins/rabbitmq_clusterer.ez/rabbitmq_clusterer-{clusterer-version}/ebin"
 ```
 
-where `{clusterer-version}` is the build of the plugin (currently `3.5.x-189b3a81`).
+where `{clusterer-version}` is the build of the plugin (see [GitHub releases page](https://github.com/rabbitmq/rabbitmq-clusterer/releases) and [Bintray](https://bintray.com/rabbitmq/community-plugins/rabbitmq_clusterer)).
 
 ## For RabbitMQ 3.4.x
 
