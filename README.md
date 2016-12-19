@@ -101,6 +101,14 @@ directory and apply it with:
 The patch assumes the plugin archive is at `${RABBITMQ_PLUGINS_DIR}/rabbitmq_clusterer.ez`.
 
 
+## Usage in Environments with Dynamic Hostnames (e.g. Kubernetes)
+
+Since this plugin assumes that all cluster members are known ahead of time
+and listed in the config, environments with dynamically generated hostnames
+must be configured to use known (or completely predictable) hostnames.
+
+For Kubernetes specifically, there's an [example repository] contributed by Matt Friendman(https://github.com/MattFriedman/kubernetes-rabbitmq-clusterer).
+
 
 ## Cluster Config Specification
 
@@ -352,15 +360,6 @@ which config is in operation by the node and what the Clusterer is
 trying to do. If the cluster has been established then the command
 will also display which nodes are known to be currently up and
 running.
-
-
-## Usage in Environments with Dynamic Hostnames (e.g. Kubernetes)
-
-Since this plugin assumes that all cluster members are known ahead of time
-and listed in the config, environments with dynamically generated hostnames
-must be configured to use known (or completely predictable) hostnames.
-
-For Kubernetes specifically, there's an [example repository] contributed by Matt Friendman(https://github.com/MattFriedman/kubernetes-rabbitmq-clusterer).
 
 
 ## Building From Source
