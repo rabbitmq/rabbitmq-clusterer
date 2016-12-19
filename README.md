@@ -354,6 +354,14 @@ will also display which nodes are known to be currently up and
 running.
 
 
+## Usage in Environments with Dynamic Hostnames (e.g. Kubernetes)
+
+Since this plugin assumes that all cluster members are known ahead of time
+and listed in the config, environments with dynamically generated hostnames
+must be configured to use known (or completely predictable) hostnames.
+
+For Kubernetes specifically, there's an [example repository] contributed by Matt Friendman(https://github.com/MattFriedman/kubernetes-rabbitmq-clusterer).
+
 
 ## Building From Source
 
@@ -363,7 +371,7 @@ much [like other plugins](https://www.rabbitmq.com/plugin-development.html).
 
 To build the plugin run `make`. The `VERSION` environment variable is used to specify plugin version:
 
-    VERSION=3.6.2 make
+    VERSION=3.6.6 make
 
 ### Linking in Development Environment
 
