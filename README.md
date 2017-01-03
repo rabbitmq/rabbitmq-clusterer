@@ -107,7 +107,7 @@ Since this plugin assumes that all cluster members are known ahead of time
 and listed in the config, environments with dynamically generated hostnames
 must be configured to use known (or completely predictable) hostnames.
 
-For Kubernetes specifically, there's an [example repository] contributed by Matt Friendman(https://github.com/MattFriedman/kubernetes-rabbitmq-clusterer).
+For Kubernetes specifically, there's an [example repository](https://github.com/MattFriedman/kubernetes-rabbitmq-clusterer) contributed by Matt Friendman.
 
 
 ## Cluster Config Specification
