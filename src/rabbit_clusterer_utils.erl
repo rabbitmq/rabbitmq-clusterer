@@ -96,7 +96,7 @@ eliminate_mnesia_dependencies(NodesToDelete) ->
     %% tables actually exist.
     ok = rabbit_table:force_load(),
     case rabbit_table:is_present() of
-        true  -> ok = rabbit_table:wait_for_replicated();
+        true  -> ok = rabbit_table:wait_for_replicated(false);
         false -> ok
     end,
     %% del_table_copy has to be done after the force_load but is also
