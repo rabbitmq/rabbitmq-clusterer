@@ -1,7 +1,7 @@
 PROJECT = rabbitmq_clusterer
 PROJECT_DESCRIPTION = Declarative RabbitMQ clustering
 PROJECT_MOD = rabbit_clusterer
-PROJECT_APP_EXTRA_KEYS = {broker_version_requirements, ["3.6.0", "3.7.0"]}
+PROJECT_APP_EXTRA_KEYS = {broker_version_requirements, []}
 
 BUILD_DEPS = rabbit_common rabbit
 
