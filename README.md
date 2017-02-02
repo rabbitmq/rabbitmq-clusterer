@@ -365,20 +365,19 @@ running.
 ## Building From Source
 
 The Clusterer reuses parts of the RabbitMQ [umbrella repository](https://github.com/rabbitmq/rabbitmq-public-umbrella). Before
-building the plugin, make sure it is cloned as `rabbitmq-clusterer` under it,
+building the plugin, make sure it is cloned as `rabbitmq_clusterer` under it,
 much [like other plugins](https://www.rabbitmq.com/plugin-development.html).
 
-To build the plugin run `make`. The `VERSION` environment variable is used to specify plugin version:
+To build the plugin run `make`. The `VERSION` environment variable is used to specify plugin version, e.g.:
 
     VERSION=3.6.6 make
 
 ### Linking in Development Environment
 
 If you're running a development environment and want to link through
-from the `rabbitmq-server/plugins` directory, link to
-`rabbitmq-clusterer/dist/rabbitmq_clusterer-$VERSION.ez`. Do not just
-link to the `rabbitmq-clusterer` directory.
-
+from the `rabbit/plugins` directory, link to
+`rabbitmq_clusterer/plugins/rabbitmq_clusterer-$VERSION.ez`. Do not just
+link to the `rabbitmq_clusterer` directory.
 
 
 ## License and Copyright
