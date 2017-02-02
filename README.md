@@ -372,6 +372,9 @@ To build the plugin run `make`. The `VERSION` environment variable is used to sp
 
     VERSION=3.6.6 make
 
+To package the plugin run `make dist`. In some cases, `make clean dist` is the
+safest option.
+
 ### Linking in Development Environment
 
 If you're running a development environment and want to link through
