@@ -385,4 +385,4 @@ link to the `rabbitmq_clusterer` directory.
 
 ## License and Copyright
 
-(c) 2013-Present Pivotal Software Inc.
+(c) 2013-2017 Pivotal Software Inc.
