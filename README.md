@@ -109,6 +109,8 @@ must be configured to use known (or completely predictable) hostnames.
 
 For Kubernetes specifically, there's an [example repository](https://github.com/MattFriedman/kubernetes-rabbitmq-clusterer) contributed by Matt Friendman.
 
+There's also [another example that uses Kubernetes 1.5.x](https://github.com/nanit/kubernetes-rabbitmq-cluster).
+
 
 ## Cluster Config Specification
 
