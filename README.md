@@ -8,6 +8,16 @@ In case you need a plugin that provides cluster member discovery, take a look at
 first. That plugin is not a strict alternative to this one but targets
 a wider range of provisioning scenarios.
 
+## Project status
+
+The plugin was created to handle arbitrary order on nodes restart.
+Since RabbitMQ version 3.6.7 this problem is addressed in the core.
+
+This plugin is considered deprecated, and it's recommended to switch
+to RabbitMQ's built-in [cluster formation feature](http://www.rabbitmq.com/configure.html) in order to avoid
+known issues that this plugin's opinionated behavior entails (such as
+[#7](https://github.com/rabbitmq/rabbitmq-clusterer/issues/7)).
+
 ## Overview
 
 Traditional RabbitMQ clustering is not very friendly to infrastructure
@@ -31,8 +41,7 @@ or due to node failure timing.
 ## Project Maturity
 
 This plugin is considered production ready. It has been used in Pivotal
-projects since Summer 2013 and the community didn't report any major
-issues since the clusterer was opensourced.
+projects since summer 2013 and used heavily in a high profile product.
 
 
 ## Compatibility With Traditional RabbitMQ Clustering
