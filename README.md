@@ -3,6 +3,15 @@
 This plugin provides an alternative means for creating and maintaining
 clusters of Rabbits.
 
+## Project status
+
+The plugin was created to handle arbitrary order on nodes restart.
+Since RabbitMQ version 3.6.7 this problem is addressed in the core.
+
+This plugin is considered deprecated, and it's recommended to switch
+to RabbitMQ core clustering in order to avoid issues like
+[#7](https://github.com/rabbitmq/rabbitmq-clusterer/issues/7)
+
 ## Overview
 
 Traditional RabbitMQ clustering is not very friendly to infrastructure
