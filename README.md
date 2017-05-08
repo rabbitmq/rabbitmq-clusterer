@@ -91,7 +91,17 @@ export RABBITMQ_BOOT_MODULE=rabbit_clusterer
 export RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS="-pa /path/to/rabbitmq/plugins/rabbitmq_clusterer.ez/rabbitmq_clusterer-{clusterer-version}/ebin"
 ```
 
-where `{clusterer-version}` is the build of the plugin (see [GitHub releases page](https://github.com/rabbitmq/rabbitmq-clusterer/releases) and [Bintray](https://bintray.com/rabbitmq/community-plugins/rabbitmq_clusterer)).
+where `{clusterer-version}` is the build of the plugin (see [GitHub releases page](https://github.com/rabbitmq/rabbitmq-clusterer/releases) and [Bintray](https://bintray.com/rabbitmq/community-plugins/rabbitmq_clusterer)):
+
+```
+export RABBITMQ_BOOT_MODULE=rabbit_clusterer
+export RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS="-pa /path/to/rabbitmq/plugins/rabbitmq_clusterer-1.0.3.ez/rabbitmq_clusterer-1.0.3/ebin"
+```
+
+Since `.ez` files are `.zip` archives, they can be easily inspected when you are not sure about
+the exact name of the directory you the file you've downloaded.
+
+>>>>>>> stable
 
 ## For RabbitMQ 3.4.x
 
