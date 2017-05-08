@@ -101,8 +101,6 @@ export RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS="-pa /path/to/rabbitmq/plugins/rabbit
 Since `.ez` files are `.zip` archives, they can be easily inspected when you are not sure about
 the exact name of the directory you the file you've downloaded.
 
->>>>>>> stable
-
 ## For RabbitMQ 3.4.x
 
 ### rabbitmq-server Patch
