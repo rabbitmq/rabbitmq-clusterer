@@ -5,6 +5,7 @@ PROJECT_APP_EXTRA_KEYS = {broker_version_requirements, ["3.6.0", "3.7.0"]}
 
 BUILD_DEPS = rabbit_common rabbit
 
+DEP_EARLY_PLUGINS = rabbit_common/mk/rabbitmq-early-plugin.mk
 DEP_PLUGINS = rabbit_common/mk/rabbitmq-plugin.mk
 
 # FIXME: Use erlang.mk patched for RabbitMQ, while waiting for PRs to be
