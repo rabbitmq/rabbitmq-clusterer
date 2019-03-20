@@ -5,7 +5,7 @@ RabbitMQ clusters. It is highly opinionated and was created with specific
 opinionated infrastructure provisioning tooling in mind.
 
 In case you need a plugin that provides cluster member discovery, take a look at the
-[peer discovery subsystem](http://www.rabbitmq.com/cluster-formation.html) introduced in RabbitMQ 3.7.0 or
+[peer discovery subsystem](https://www.rabbitmq.com/cluster-formation.html) introduced in RabbitMQ 3.7.0 or
 its predecessor, [rabbitmq-autocluster](https://github.com/rabbitmq/rabbitmq-autocluster).
 That plugin is not a strict alternative to this one but targets
 a wider range of provisioning scenarios.
@@ -16,7 +16,7 @@ The plugin was created to handle arbitrary order on nodes restart.
 Since RabbitMQ version 3.6.7 this problem is addressed in the core.
 
 This plugin is considered deprecated, and it's recommended to switch
-to RabbitMQ's built-in [cluster formation feature](http://www.rabbitmq.com/configure.html) in order to avoid
+to RabbitMQ's built-in [cluster formation feature](https://www.rabbitmq.com/configure.html) in order to avoid
 known issues that this plugin's opinionated behavior entails (such as
 [#7](https://github.com/rabbitmq/rabbitmq-clusterer/issues/7)).
 
@@ -71,11 +71,11 @@ and must not be used.
 
 Binary builds of this plugin are available from
 
- * [Bintray](https://bintray.com/rabbitmq/community-plugins/rabbitmq_clusterer) (like with other [RabbitMQ Community Plugins](http://rabbitmq.com/community-plugins.html))
+ * [Bintray](https://bintray.com/rabbitmq/community-plugins/rabbitmq_clusterer) (like with other [RabbitMQ Community Plugins](https://rabbitmq.com/community-plugins.html))
  * [GitHub releases page](https://github.com/rabbitmq/rabbitmq-clusterer/releases)
 
 As with all other plugins, you must put the plugin archive (`.ez`) in
-the [RabbitMQ plugins directory](http://www.rabbitmq.com/relocate.html)
+the [RabbitMQ plugins directory](https://www.rabbitmq.com/relocate.html)
 and enable it with `rabbitmq-plugins enable rabbitmq_clusterer --offline`.
 
 ## For Recent RabbitMQ Versions (3.5.4 and Later)
@@ -83,7 +83,7 @@ and enable it with `rabbitmq-plugins enable rabbitmq_clusterer --offline`.
 Compiled plugin file needs to be placed into .
 
 To use the plugin, it is necessary to override `RABBITMQ_BOOT_MODULE` to `rabbit_clusterer`. This
-is done similarly to [other RabbitMQ environment variables](http://rabbitmq.com/configure.html).
+is done similarly to [other RabbitMQ environment variables](https://rabbitmq.com/configure.html).
 
 Because this plugin coordinates RabbitMQ node start, it needs to be manually added to the Erlang VM
 code path:
