@@ -15,7 +15,7 @@ That plugin is not a strict alternative to this one but targets a wider range of
 ## Project status
 
 The plugin was created to handle arbitrary order on nodes restart.
-**Since RabbitMQ version 3.6.7 this problem is addressed** in the core.
+**Since RabbitMQ version 3.6.7 this problem is [addressed](https://www.rabbitmq.com/clustering.html#restarting)** in the core.
 
 This plugin is considered deprecated, and it's recommended to switch
 to RabbitMQ's built-in [cluster formation feature](https://www.rabbitmq.com/configure.html) in order to avoid
