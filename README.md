@@ -1,19 +1,21 @@
 # RabbitMQ Clusterer
 
-This plugin provides an alternative means for creating and maintaining
-RabbitMQ clusters. It is highly opinionated and was created with specific
-opinionated infrastructure provisioning tooling in mind.
+This plugin is **no longer maintained**, and **completely unnecessary** with [supported releases of RabbitMQ](https://www.rabbitmq.com/versions.html).
 
-In case you need a plugin that provides cluster member discovery, take a look at the
-[peer discovery subsystem](https://www.rabbitmq.com/cluster-formation.html) introduced in RabbitMQ 3.7.0 or
+This plugin provided an alternative means for creating and maintaining
+RabbitMQ clusters. It is highly opinionated and was created with specific
+opinionated infrastructure provisioning tooling in mind. Team RabbitMQ
+**considers it to be a failed experiment** and **highly recommends against it**.
+
+Please [upgrade to a supported RabbitMQ version](https://www.rabbitmq.com/upgrade.html) instead.
+It provides a [peer discovery subsystem](https://www.rabbitmq.com/cluster-formation.html) introduced in RabbitMQ 3.7.0 or
 its predecessor, [rabbitmq-autocluster](https://github.com/rabbitmq/rabbitmq-autocluster).
-That plugin is not a strict alternative to this one but targets
-a wider range of provisioning scenarios.
+That plugin is not a strict alternative to this one but targets a wider range of provisioning scenarios.
 
 ## Project status
 
 The plugin was created to handle arbitrary order on nodes restart.
-Since RabbitMQ version 3.6.7 this problem is addressed in the core.
+**Since RabbitMQ version 3.6.7 this problem is addressed** in the core.
 
 This plugin is considered deprecated, and it's recommended to switch
 to RabbitMQ's built-in [cluster formation feature](https://www.rabbitmq.com/configure.html) in order to avoid
