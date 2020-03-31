@@ -44,8 +44,7 @@ or due to node failure timing.
 
 ## Project Maturity
 
-This plugin is considered production ready. It has been used in Pivotal
-projects since summer 2013 and used heavily in a high profile product.
+This plugin is **ancient abandonware**. Do not use. Yes, really, it no longer has any reasons to exist.
 
 
 ## Compatibility With Traditional RabbitMQ Clustering
